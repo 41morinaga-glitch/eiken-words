@@ -14,11 +14,13 @@
   #topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; font-size: 14px; color: #888; flex-shrink: 0; z-index: 10; }
   #topbar button { background: none; border: none; color: #888; font-size: 16px; padding: 6px 10px; cursor: pointer; }
   #counter { font-variant-numeric: tabular-nums; }
+  #menuBtn { position: fixed; right: calc(16px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; background: #222; border: 1px solid #333; color: #fff; font-size: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 50; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+  #menuBtn:active { background: #333; }
 
   #card { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; }
-  #word { font-size: clamp(28px, 8vw, 56px); font-weight: 600; line-height: 1.3; word-break: break-word; transition: opacity 0.15s; }
-  #word.ja { font-size: clamp(24px, 6vw, 44px); }
-  #hint { position: absolute; bottom: 20px; left: 0; right: 0; text-align: center; color: #444; font-size: 12px; }
+  #word { font-size: clamp(84px, 24vw, 168px); font-weight: 600; line-height: 1.3; word-break: break-word; transition: opacity 0.15s; }
+  #word.ja { font-size: clamp(72px, 18vw, 132px); }
+  #hint { position: absolute; bottom: 80px; left: 0; right: 0; text-align: center; color: #666; font-size: 14px; pointer-events: none; }
 
   .zone { position: absolute; top: 0; bottom: 0; width: 33.33%; z-index: 5; }
   .zone.left { left: 0; }
@@ -66,7 +68,6 @@
 <body>
 
 <div id="topbar">
-  <button id="menuBtn">☰ メニュー</button>
   <span id="counter">0 / 0</span>
   <button id="shuffleBtn">↻</button>
 </div>
@@ -78,6 +79,8 @@
   <div class="zone center" id="zoneCenter"></div>
   <div class="zone right" id="zoneRight"></div>
 </div>
+
+<button id="menuBtn" aria-label="メニュー">☰</button>
 
 <!-- Menu overlay -->
 <div class="overlay" id="menuOverlay">
@@ -186,10 +189,12 @@ function uid() { return Date.now().toString(36) + Math.random().toString(36).sli
 function render() {
   const wEl = document.getElementById('word');
   const cEl = document.getElementById('counter');
+  const hEl = document.getElementById('hint');
   if (words.length === 0) {
     wEl.textContent = '単語がありません';
     wEl.className = '';
     cEl.textContent = '0 / 0';
+    hEl.textContent = '左:戻る ・ 中央:反転 ・ 右:進む';
     return;
   }
   if (index >= words.length) index = 0;
@@ -198,6 +203,7 @@ function render() {
   wEl.textContent = showJa ? w.ja : w.en;
   wEl.className = showJa ? 'ja' : '';
   cEl.textContent = (index + 1) + ' / ' + words.length;
+  hEl.textContent = showJa ? 'タップで英語' : 'タップで日本語';
 }
 
 function next() { if (!words.length) return; index = (index + 1) % words.length; showJa = false; render(); }
