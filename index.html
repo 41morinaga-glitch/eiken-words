@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>英検単語</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; }
+  html, body { height: 100%; background: #000; color: #fff; font-family: -apple-system, "Hiragino Sans", sans-serif; overflow: hidden; overscroll-behavior: none; }
+  body { display: flex; flex-direction: column; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+
+  #topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; font-size: 14px; color: #888; flex-shrink: 0; z-index: 10; }
+  #topbar button { background: none; border: none; color: #888; font-size: 16px; padding: 6px 10px; cursor: pointer; }
+  #counter { font-variant-numeric: tabular-nums; }
+
+  #card { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; }
+  #word { font-size: clamp(28px, 8vw, 56px); font-weight: 600; line-height: 1.3; word-break: break-word; transition: opacity 0.15s; }
+  #word.ja { font-size: clamp(24px, 6vw, 44px); }
+  #hint { position: absolute; bottom: 20px; left: 0; right: 0; text-align: center; color: #444; font-size: 12px; }
+
+  .zone { position: absolute; top: 0; bottom: 0; width: 33.33%; z-index: 5; }
+  .zone.left { left: 0; }
+  .zone.center { left: 33.33%; }
+  .zone.right { right: 0; }
+
+  #empty { color: #666; font-size: 18px; text-align: center; padding: 20px; }
+
+  /* Overlay (menu / modals) */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; display: none; flex-direction: column; padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  .overlay.show { display: flex; }
+  .overlay header { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; border-bottom: 1px solid #222; }
+  .overlay header h2 { font-size: 17px; font-weight: 600; }
+  .overlay header button { background: none; border: none; color: #4ea1ff; font-size: 16px; padding: 6px 4px; cursor: pointer; }
+  .overlay .body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 12px 16px 40px; }
+
+  .menu-item { display: block; width: 100%; background: #111; border: 1px solid #222; color: #fff; padding: 16px; font-size: 16px; text-align: left; border-radius: 10px; margin-bottom: 10px; cursor: pointer; }
+  .menu-item small { display: block; color: #666; font-size: 12px; margin-top: 4px; }
+
+  input[type=text], textarea { width: 100%; background: #111; border: 1px solid #222; color: #fff; padding: 12px; font-size: 16px; border-radius: 8px; font-family: inherit; }
+  textarea { min-height: 180px; resize: vertical; }
+  label { display: block; color: #888; font-size: 12px; margin: 12px 0 6px; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+
+  .btn { background: #4ea1ff; border: none; color: #fff; padding: 14px; font-size: 16px; border-radius: 10px; font-weight: 600; cursor: pointer; width: 100%; margin-top: 14px; }
+  .btn.secondary { background: #222; }
+  .btn.danger { background: #b33; }
+
+  .list-item { display: flex; align-items: center; gap: 10px; padding: 12px; background: #111; border: 1px solid #222; border-radius: 8px; margin-bottom: 6px; }
+  .list-item .text { flex: 1; min-width: 0; }
+  .list-item .en { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list-item .ja { font-size: 12px; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list-item button { background: #222; border: none; color: #fff; padding: 8px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+  .list-item button.del { background: #422; color: #f88; }
+
+  #ocrStatus { color: #888; font-size: 13px; margin-top: 10px; min-height: 18px; }
+  #preview { max-width: 100%; max-height: 200px; border-radius: 8px; margin-top: 10px; display: none; }
+
+  .pair-editor { display: flex; gap: 6px; margin-bottom: 6px; }
+  .pair-editor input { flex: 1; padding: 8px; font-size: 14px; }
+  .pair-editor button { background: #422; border: none; color: #f88; padding: 0 10px; border-radius: 6px; cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <button id="menuBtn">☰ メニュー</button>
+  <span id="counter">0 / 0</span>
+  <button id="shuffleBtn">↻</button>
+</div>
+
+<div id="card">
+  <div id="word">単語がありません</div>
+  <div id="hint">左:戻る ・ 中央:反転 ・ 右:進む</div>
+  <div class="zone left" id="zoneLeft"></div>
+  <div class="zone center" id="zoneCenter"></div>
+  <div class="zone right" id="zoneRight"></div>
+</div>
+
+<!-- Menu overlay -->
+<div class="overlay" id="menuOverlay">
+  <header>
+    <h2>メニュー</h2>
+    <button data-close>閉じる</button>
+  </header>
+  <div class="body">
+    <button class="menu-item" id="openAdd">＋ 手動で単語を追加<small>英語と日本語訳を1件ずつ入力</small></button>
+    <button class="menu-item" id="openCamera">📷 カメラで取り込み<small>撮影した画像から文字を認識(OCR)</small></button>
+    <button class="menu-item" id="openBulk">📝 まとめて入力<small>「英語 = 日本語」を改行区切りで貼り付け</small></button>
+    <button class="menu-item" id="openList">📋 一覧・編集<small>追加した単語の編集・削除</small></button>
+    <button class="menu-item" id="openIO">💾 エクスポート / インポート<small>JSONでバックアップ・復元</small></button>
+  </div>
+</div>
+
+<!-- Add single -->
+<div class="overlay" id="addOverlay">
+  <header><h2>単語を追加</h2><button data-close>閉じる</button></header>
+  <div class="body">
+    <label>英語</label>
+    <input type="text" id="addEn" autocapitalize="off" autocorrect="off">
+    <label>日本語訳</label>
+    <input type="text" id="addJa">
+    <button class="btn" id="addSave">追加</button>
+  </div>
+</div>
+
+<!-- Camera / OCR -->
+<div class="overlay" id="camOverlay">
+  <header><h2>カメラで取り込み</h2><button data-close>閉じる</button></header>
+  <div class="body">
+    <label>画像を選択または撮影</label>
+    <input type="file" id="camInput" accept="image/*" capture="environment">
+    <img id="preview">
+    <div id="ocrStatus"></div>
+    <label>認識結果(編集可)</label>
+    <textarea id="ocrText" placeholder="OCR結果がここに表示されます"></textarea>
+    <label>ペアの分割方法</label>
+    <div class="row">
+      <button class="btn secondary" data-split="auto">自動判定</button>
+      <button class="btn secondary" data-split="tab">タブ/空白</button>
+      <button class="btn secondary" data-split="eq">= 区切り</button>
+    </div>
+    <div id="pairPreview" style="margin-top:14px;"></div>
+    <button class="btn" id="ocrSave" style="display:none;">この内容で追加</button>
+  </div>
+</div>
+
+<!-- Bulk -->
+<div class="overlay" id="bulkOverlay">
+  <header><h2>まとめて入力</h2><button data-close>閉じる</button></header>
+  <div class="body">
+    <label>1行1ペア。区切りは「=」「タブ」「コロン」「スペース2つ以上」のいずれか</label>
+    <textarea id="bulkText" placeholder="apple = りんご&#10;book = 本&#10;run = 走る"></textarea>
+    <button class="btn" id="bulkSave">追加</button>
+  </div>
+</div>
+
+<!-- List / Edit -->
+<div class="overlay" id="listOverlay">
+  <header><h2>一覧・編集</h2><button data-close>閉じる</button></header>
+  <div class="body" id="listBody"></div>
+</div>
+
+<!-- Edit single -->
+<div class="overlay" id="editOverlay">
+  <header><h2>編集</h2><button data-close>閉じる</button></header>
+  <div class="body">
+    <label>英語</label>
+    <input type="text" id="editEn">
+    <label>日本語訳</label>
+    <input type="text" id="editJa">
+    <button class="btn" id="editSave">保存</button>
+    <button class="btn danger" id="editDelete">削除</button>
+  </div>
+</div>
+
+<!-- IO -->
+<div class="overlay" id="ioOverlay">
+  <header><h2>エクスポート / インポート</h2><button data-close>閉じる</button></header>
+  <div class="body">
+    <label>現在のデータ (コピーして保管)</label>
+    <textarea id="ioText"></textarea>
+    <button class="btn" id="ioImport">この内容でインポート(上書き)</button>
+    <button class="btn secondary" id="ioMerge">追加でインポート(マージ)</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script>
+const STORAGE_KEY = 'eiken_words_v1';
+let words = load();
+let index = 0;
+let showJa = false; // false: EN shown, true: JA shown
+let editingId = null;
+let ocrPairs = [];
+
+function load() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+  catch(e) { return []; }
+}
+function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(words)); }
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+function render() {
+  const wEl = document.getElementById('word');
+  const cEl = document.getElementById('counter');
+  if (words.length === 0) {
+    wEl.textContent = '単語がありません';
+    wEl.className = '';
+    cEl.textContent = '0 / 0';
+    return;
+  }
+  if (index >= words.length) index = 0;
+  if (index < 0) index = words.length - 1;
+  const w = words[index];
+  wEl.textContent = showJa ? w.ja : w.en;
+  wEl.className = showJa ? 'ja' : '';
+  cEl.textContent = (index + 1) + ' / ' + words.length;
+}
+
+function next() { if (!words.length) return; index = (index + 1) % words.length; showJa = false; render(); }
+function prev() { if (!words.length) return; index = (index - 1 + words.length) % words.length; showJa = false; render(); }
+function flip() { if (!words.length) return; showJa = !showJa; render(); }
+
+document.getElementById('zoneRight').addEventListener('click', next);
+document.getElementById('zoneLeft').addEventListener('click', prev);
+document.getElementById('zoneCenter').addEventListener('click', flip);
+
+document.getElementById('shuffleBtn').addEventListener('click', () => {
+  if (words.length < 2) return;
+  for (let i = words.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [words[i], words[j]] = [words[j], words[i]];
+  }
+  save(); index = 0; showJa = false; render();
+});
+
+// Overlay management
+function showOverlay(id) { document.getElementById(id).classList.add('show'); }
+function hideOverlay(el) { el.classList.remove('show'); }
+document.querySelectorAll('[data-close]').forEach(b => {
+  b.addEventListener('click', () => hideOverlay(b.closest('.overlay')));
+});
+
+document.getElementById('menuBtn').addEventListener('click', () => showOverlay('menuOverlay'));
+document.getElementById('openAdd').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); document.getElementById('addEn').value=''; document.getElementById('addJa').value=''; showOverlay('addOverlay'); setTimeout(()=>document.getElementById('addEn').focus(), 100); });
+document.getElementById('openCamera').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); showOverlay('camOverlay'); });
+document.getElementById('openBulk').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); showOverlay('bulkOverlay'); });
+document.getElementById('openList').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); renderList(); showOverlay('listOverlay'); });
+document.getElementById('openIO').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); document.getElementById('ioText').value = JSON.stringify(words, null, 2); showOverlay('ioOverlay'); });
+
+// Add single
+document.getElementById('addSave').addEventListener('click', () => {
+  const en = document.getElementById('addEn').value.trim();
+  const ja = document.getElementById('addJa').value.trim();
+  if (!en || !ja) { alert('両方入力してください'); return; }
+  words.push({ id: uid(), en, ja });
+  save();
+  document.getElementById('addEn').value = '';
+  document.getElementById('addJa').value = '';
+  hideOverlay(document.getElementById('addOverlay'));
+  render();
+});
+
+// Bulk
+function parsePairs(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const out = [];
+  for (const line of lines) {
+    let m = line.split(/\s*=\s*/);
+    if (m.length < 2) m = line.split(/\t+/);
+    if (m.length < 2) m = line.split(/\s*[:：]\s*/);
+    if (m.length < 2) m = line.split(/\s{2,}/);
+    if (m.length < 2) {
+      // fallback: first whitespace = split EN from JA
+      const idx = line.search(/\s/);
+      if (idx > 0) m = [line.slice(0, idx), line.slice(idx+1)];
+    }
+    if (m.length >= 2) {
+      const en = m[0].trim();
+      const ja = m.slice(1).join(' ').trim();
+      if (en && ja) out.push({ en, ja });
+    }
+  }
+  return out;
+}
+
+document.getElementById('bulkSave').addEventListener('click', () => {
+  const text = document.getElementById('bulkText').value;
+  const pairs = parsePairs(text);
+  if (!pairs.length) { alert('ペアが見つかりません'); return; }
+  pairs.forEach(p => words.push({ id: uid(), en: p.en, ja: p.ja }));
+  save();
+  document.getElementById('bulkText').value = '';
+  hideOverlay(document.getElementById('bulkOverlay'));
+  render();
+  alert(pairs.length + '件追加しました');
+});
+
+// OCR
+document.getElementById('camInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const preview = document.getElementById('preview');
+  const url = URL.createObjectURL(file);
+  preview.src = url;
+  preview.style.display = 'block';
+  const status = document.getElementById('ocrStatus');
+  status.textContent = 'OCR実行中... (初回はモデル読み込みに数十秒)';
+  try {
+    const { data } = await Tesseract.recognize(file, 'eng+jpn', {
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          status.textContent = '認識中 ' + Math.round(m.progress * 100) + '%';
+        } else if (m.status) {
+          status.textContent = m.status;
+        }
+      }
+    });
+    status.textContent = '完了。必要に応じて編集してください。';
+    document.getElementById('ocrText').value = data.text;
+    splitOcr('auto');
+  } catch (err) {
+    status.textContent = 'エラー: ' + err.message;
+  }
+});
+
+document.querySelectorAll('[data-split]').forEach(b => {
+  b.addEventListener('click', () => splitOcr(b.dataset.split));
+});
+
+function splitOcr(mode) {
+  const text = document.getElementById('ocrText').value;
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const pairs = [];
+  for (const line of lines) {
+    let m;
+    if (mode === 'eq') m = line.split(/\s*=\s*/);
+    else if (mode === 'tab') m = line.split(/\t+|\s{2,}/);
+    else {
+      m = line.split(/\s*=\s*/);
+      if (m.length < 2) m = line.split(/\t+/);
+      if (m.length < 2) m = line.split(/\s*[:：]\s*/);
+      if (m.length < 2) {
+        // detect EN vs JA: find first Japanese char
+        const idx = line.search(/[\u3040-\u30ff\u3400-\u9fff]/);
+        if (idx > 0) m = [line.slice(0, idx).trim(), line.slice(idx).trim()];
+      }
+    }
+    if (m && m.length >= 2) {
+      const en = m[0].trim();
+      const ja = m.slice(1).join(' ').trim();
+      if (en && ja) pairs.push({ en, ja });
+    }
+  }
+  ocrPairs = pairs;
+  renderOcrPreview();
+}
+
+function renderOcrPreview() {
+  const box = document.getElementById('pairPreview');
+  const saveBtn = document.getElementById('ocrSave');
+  if (!ocrPairs.length) {
+    box.innerHTML = '<div style="color:#666;font-size:13px;">ペアがありません。テキストを編集して再分割してください。</div>';
+    saveBtn.style.display = 'none';
+    return;
+  }
+  box.innerHTML = '<label>プレビュー(' + ocrPairs.length + '件) ※編集可</label>';
+  ocrPairs.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'pair-editor';
+    row.innerHTML = '<input type="text" value="" placeholder="英語"><input type="text" value="" placeholder="日本語"><button>×</button>';
+    row.children[0].value = p.en;
+    row.children[1].value = p.ja;
+    row.children[0].addEventListener('input', e => ocrPairs[i].en = e.target.value);
+    row.children[1].addEventListener('input', e => ocrPairs[i].ja = e.target.value);
+    row.children[2].addEventListener('click', () => { ocrPairs.splice(i,1); renderOcrPreview(); });
+    box.appendChild(row);
+  });
+  saveBtn.style.display = 'block';
+}
+
+document.getElementById('ocrSave').addEventListener('click', () => {
+  const valid = ocrPairs.filter(p => p.en.trim() && p.ja.trim());
+  if (!valid.length) { alert('有効なペアがありません'); return; }
+  valid.forEach(p => words.push({ id: uid(), en: p.en.trim(), ja: p.ja.trim() }));
+  save();
+  ocrPairs = [];
+  document.getElementById('ocrText').value = '';
+  document.getElementById('preview').style.display = 'none';
+  document.getElementById('camInput').value = '';
+  document.getElementById('pairPreview').innerHTML = '';
+  document.getElementById('ocrSave').style.display = 'none';
+  hideOverlay(document.getElementById('camOverlay'));
+  render();
+  alert(valid.length + '件追加しました');
+});
+
+// List / Edit
+function renderList() {
+  const body = document.getElementById('listBody');
+  if (!words.length) { body.innerHTML = '<div style="color:#666;text-align:center;padding:40px;">単語がありません</div>'; return; }
+  body.innerHTML = '';
+  words.forEach((w, i) => {
+    const item = document.createElement('div');
+    item.className = 'list-item';
+    const text = document.createElement('div');
+    text.className = 'text';
+    const en = document.createElement('div'); en.className = 'en'; en.textContent = w.en;
+    const ja = document.createElement('div'); ja.className = 'ja'; ja.textContent = w.ja;
+    text.appendChild(en); text.appendChild(ja);
+    const editBtn = document.createElement('button'); editBtn.textContent = '編集';
+    editBtn.addEventListener('click', () => openEdit(w.id));
+    const delBtn = document.createElement('button'); delBtn.textContent = '削除'; delBtn.className = 'del';
+    delBtn.addEventListener('click', () => {
+      if (!confirm('削除しますか?')) return;
+      words = words.filter(x => x.id !== w.id);
+      save(); renderList(); render();
+    });
+    item.appendChild(text); item.appendChild(editBtn); item.appendChild(delBtn);
+    body.appendChild(item);
+  });
+}
+
+function openEdit(id) {
+  const w = words.find(x => x.id === id);
+  if (!w) return;
+  editingId = id;
+  document.getElementById('editEn').value = w.en;
+  document.getElementById('editJa').value = w.ja;
+  showOverlay('editOverlay');
+}
+
+document.getElementById('editSave').addEventListener('click', () => {
+  const w = words.find(x => x.id === editingId);
+  if (!w) return;
+  w.en = document.getElementById('editEn').value.trim();
+  w.ja = document.getElementById('editJa').value.trim();
+  save();
+  hideOverlay(document.getElementById('editOverlay'));
+  renderList(); render();
+});
+document.getElementById('editDelete').addEventListener('click', () => {
+  if (!confirm('削除しますか?')) return;
+  words = words.filter(x => x.id !== editingId);
+  save();
+  hideOverlay(document.getElementById('editOverlay'));
+  renderList(); render();
+});
+
+// IO
+document.getElementById('ioImport').addEventListener('click', () => {
+  try {
+    const data = JSON.parse(document.getElementById('ioText').value);
+    if (!Array.isArray(data)) throw new Error('配列である必要があります');
+    words = data.map(d => ({ id: d.id || uid(), en: String(d.en||''), ja: String(d.ja||'') })).filter(d => d.en && d.ja);
+    save(); index = 0; render();
+    hideOverlay(document.getElementById('ioOverlay'));
+    alert('インポートしました: ' + words.length + '件');
+  } catch(e) { alert('読み込みエラー: ' + e.message); }
+});
+document.getElementById('ioMerge').addEventListener('click', () => {
+  try {
+    const data = JSON.parse(document.getElementById('ioText').value);
+    if (!Array.isArray(data)) throw new Error('配列である必要があります');
+    const add = data.map(d => ({ id: uid(), en: String(d.en||''), ja: String(d.ja||'') })).filter(d => d.en && d.ja);
+    words = words.concat(add);
+    save(); render();
+    hideOverlay(document.getElementById('ioOverlay'));
+    alert('追加しました: ' + add.length + '件');
+  } catch(e) { alert('読み込みエラー: ' + e.message); }
+});
+
+// Prevent iOS bounce & double-tap zoom
+document.addEventListener('touchmove', e => {
+  if (e.target.closest('.body, textarea')) return;
+  e.preventDefault();
+}, { passive: false });
+
+let lastTouch = 0;
+document.addEventListener('touchend', e => {
+  const now = Date.now();
+  if (now - lastTouch < 300) e.preventDefault();
+  lastTouch = now;
+}, { passive: false });
+
+// Keyboard support (for desktop testing)
+document.addEventListener('keydown', e => {
+  if (document.querySelector('.overlay.show')) return;
+  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
+  else if (e.key === 'ArrowLeft') prev();
+  else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); flip(); }
+});
+
+render();
+</script>
+</body>
+</html>
