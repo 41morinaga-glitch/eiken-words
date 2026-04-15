@@ -174,7 +174,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-120450';
+const APP_VERSION = '20260415-120715';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 let words = load();
@@ -277,32 +277,21 @@ function flip() { if (!words.length) return; showJa = !showJa; render(); }
   card.addEventListener('pointercancel', () => { pid = null; });
 })();
 
-// 読み上げボタン: タップで現在の単語を再生、長押しでON/OFF
+// 読み上げボタン: タップでON/OFF切替
 (function() {
   const btn = document.getElementById('speakBtn');
   function updateBtn() { btn.classList.toggle('off', !speakEnabled); btn.textContent = speakEnabled ? '🔊' : '🔇'; }
   updateBtn();
-  let pressTimer = null;
-  let longPressed = false;
-  btn.addEventListener('pointerdown', () => {
-    longPressed = false;
-    pressTimer = setTimeout(() => {
-      longPressed = true;
-      speakEnabled = !speakEnabled;
-      localStorage.setItem(SPEAK_KEY, speakEnabled ? '1' : '0');
-      updateBtn();
-      if (!speakEnabled) window.speechSynthesis && window.speechSynthesis.cancel();
-    }, 500);
+  btn.addEventListener('click', () => {
+    speakEnabled = !speakEnabled;
+    localStorage.setItem(SPEAK_KEY, speakEnabled ? '1' : '0');
+    updateBtn();
+    if (!speakEnabled) {
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+    } else if (words.length && !showJa) {
+      speak(words[index].en);
+    }
   });
-  btn.addEventListener('pointerup', e => {
-    clearTimeout(pressTimer);
-    if (longPressed) { e.preventDefault(); return; }
-    if (!words.length || showJa) return;
-    const prev = speakEnabled; speakEnabled = true;
-    speak(words[index].en);
-    speakEnabled = prev;
-  });
-  btn.addEventListener('pointercancel', () => clearTimeout(pressTimer));
 })();
 
 document.getElementById('shuffleBtn').addEventListener('click', () => {
