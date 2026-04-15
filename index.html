@@ -78,7 +78,7 @@
 </div>
 
 <div id="card">
-  <div id="word">単語がありません</div>
+  <div id="word" class="ja">単語がありません</div>
   <div id="hint">タップ:反転 ・ ↑スワイプ:次 ・ ↓スワイプ:前</div>
 </div>
 
@@ -202,7 +202,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-132226';
+const APP_VERSION = '20260415-132530';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -397,7 +397,7 @@ function render() {
   const hEl = document.getElementById('hint');
   if (words.length === 0) {
     wEl.textContent = '単語がありません';
-    wEl.className = '';
+    wEl.className = 'ja';
     cEl.textContent = '0 / 0';
     hEl.textContent = 'タップ:反転 ・ ↑:次 ・ ↓:前';
     wEl.style.fontSize = '';
