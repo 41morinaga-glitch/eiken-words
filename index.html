@@ -22,6 +22,10 @@
   #speakBtn { position: fixed; left: calc(16px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; background: #222; border: 1px solid #333; color: #fff; font-size: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 50; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
   #speakBtn:active { background: #333; }
   #speakBtn.off { color: #666; }
+  #learnedBtn { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(22px + env(safe-area-inset-bottom)); padding: 14px 22px; border-radius: 30px; background: linear-gradient(135deg, #2d6a4f, #1b4332); border: 1px solid #52b788; color: #fff; font-size: 15px; font-weight: 600; display: none; align-items: center; justify-content: center; cursor: pointer; z-index: 50; box-shadow: 0 4px 16px rgba(82,183,136,0.3); gap: 6px; }
+  #learnedBtn:active { transform: translateX(-50%) scale(0.95); }
+  #toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8); background: rgba(0,0,0,0.9); border: 2px solid #52b788; color: #fff; padding: 24px 36px; border-radius: 16px; font-size: 24px; font-weight: 700; z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s; box-shadow: 0 10px 40px rgba(82,183,136,0.5); text-align: center; }
+  #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 
   #card { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; }
   #card-inner { max-width: 100%; }
@@ -84,7 +88,9 @@
 </div>
 
 <button id="speakBtn" aria-label="読み上げ">🔊</button>
+<button id="learnedBtn" aria-label="覚えた">✓ 覚えた</button>
 <button id="menuBtn" aria-label="メニュー">☰</button>
+<div id="toast"></div>
 
 <!-- Menu overlay -->
 <div class="overlay" id="menuOverlay">
@@ -97,6 +103,7 @@
     <button class="menu-item" id="openCamera">📷 画像から取り込み<small>アルバムの写真 or その場で撮影した画像をOCR</small></button>
     <button class="menu-item" id="openBulk">📝 まとめて入力<small>「英語 = 日本語」を改行区切りで貼り付け</small></button>
     <button class="menu-item" id="openList">📋 一覧・編集<small>追加した単語の編集・削除</small></button>
+    <button class="menu-item" id="openLearned">🏆 覚えた単語<small>学習済みの一覧・日付別統計</small></button>
     <button class="menu-item" id="openSync">☁️ 同期設定<small>GitHub Gist経由で複数端末と自動同期</small></button>
     <button class="menu-item" id="openBackup">🗄 バックアップ/復元<small>自動保存された履歴から単語を復元</small></button>
     <button class="menu-item" id="openIO">💾 エクスポート / インポート<small>JSONでバックアップ・復元</small></button>
@@ -191,6 +198,12 @@
   </div>
 </div>
 
+<!-- Learned -->
+<div class="overlay" id="learnedOverlay">
+  <header><h2>覚えた単語</h2><button data-close>閉じる</button></header>
+  <div class="body" id="learnedBody"></div>
+</div>
+
 <!-- Backup -->
 <div class="overlay" id="backupOverlay">
   <header><h2>バックアップ/復元</h2><button data-close>閉じる</button></header>
@@ -216,7 +229,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-135824';
+const APP_VERSION = '20260415-140606';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -225,11 +238,18 @@ const BACKUP_KEY = 'eiken_backups_v1';
 const MAX_BACKUPS = 20;
 const GIST_FILENAME = 'eiken-words.json';
 let words = load();
+let activeWords = [];
 let index = 0;
 let showJa = false; // false: EN shown, true: JA shown
 let editingId = null;
 let ocrPairs = [];
 let speakEnabled = localStorage.getItem(SPEAK_KEY) !== '0';
+
+function refreshActive() {
+  activeWords = words.filter(w => !w.learned);
+  if (index >= activeWords.length) index = Math.max(0, activeWords.length - 1);
+  if (index < 0) index = 0;
+}
 
 function speak(text) {
   if (!speakEnabled || !text) return;
@@ -466,33 +486,41 @@ function fitWordToWidth() {
 }
 
 function render() {
+  refreshActive();
   const wEl = document.getElementById('word');
   const cEl = document.getElementById('counter');
   const hEl = document.getElementById('hint');
-  if (words.length === 0) {
-    wEl.textContent = '単語がありません';
+  const learnedBtn = document.getElementById('learnedBtn');
+  if (activeWords.length === 0) {
+    if (words.length === 0) {
+      wEl.textContent = '単語がありません';
+    } else {
+      wEl.textContent = '全て覚えました！ 🎉';
+    }
     wEl.className = 'ja';
     cEl.textContent = '0 / 0';
-    hEl.textContent = 'タップ:反転 ・ ↑:次 ・ ↓:前';
+    hEl.textContent = words.length === 0 ? 'タップ:反転 ・ ↑:次 ・ ↓:前' : '✨ おめでとうございます ✨';
     wEl.style.fontSize = '';
+    if (learnedBtn) learnedBtn.style.display = 'none';
     return;
   }
-  if (index >= words.length) index = 0;
-  if (index < 0) index = words.length - 1;
-  const w = words[index];
+  if (index >= activeWords.length) index = 0;
+  if (index < 0) index = activeWords.length - 1;
+  const w = activeWords[index];
   if (showJa) { wEl.innerHTML = formatJa(w.ja); } else { wEl.textContent = w.en; }
   wEl.className = showJa ? 'ja' : '';
-  cEl.textContent = (index + 1) + ' / ' + words.length;
+  cEl.textContent = (index + 1) + ' / ' + activeWords.length;
   hEl.textContent = showJa ? 'タップで英語' : 'タップで日本語';
+  if (learnedBtn) learnedBtn.style.display = 'flex';
   requestAnimationFrame(fitWordToWidth);
 }
 
 function speakCurrent() {
-  if (!words.length || showJa) return;
-  speak(words[index].en);
+  if (!activeWords.length || showJa) return;
+  speak(activeWords[index].en);
 }
 
-window.addEventListener('resize', () => { if (words.length) fitWordToWidth(); });
+window.addEventListener('resize', () => { if (activeWords.length) fitWordToWidth(); });
 
 let navLock = 0;
 function canNav() {
@@ -501,9 +529,9 @@ function canNav() {
   navLock = now;
   return true;
 }
-function next() { if (!words.length || !canNav()) return; index = (index + 1) % words.length; showJa = false; render(); speakCurrent(); }
-function prev() { if (!words.length || !canNav()) return; index = (index - 1 + words.length) % words.length; showJa = false; render(); speakCurrent(); }
-function flip() { if (!words.length) return; showJa = !showJa; render(); speakCurrent(); }
+function next() { if (!activeWords.length || !canNav()) return; index = (index + 1) % activeWords.length; showJa = false; render(); speakCurrent(); }
+function prev() { if (!activeWords.length || !canNav()) return; index = (index - 1 + activeWords.length) % activeWords.length; showJa = false; render(); speakCurrent(); }
+function flip() { if (!activeWords.length) return; showJa = !showJa; render(); speakCurrent(); }
 
 // タップで反転、上スワイプ(orホイール上)で次、下スワイプ(orホイール下)で前
 (function() {
@@ -561,11 +589,51 @@ function flip() { if (!words.length) return; showJa = !showJa; render(); speakCu
     updateBtn();
     if (!speakEnabled) {
       if (window.speechSynthesis) window.speechSynthesis.cancel();
-    } else if (words.length && !showJa) {
-      speak(words[index].en);
+    } else if (activeWords.length && !showJa) {
+      speak(activeWords[index].en);
     }
   });
 })();
+
+// 覚えた機能
+const PRAISES = [
+  'いいね！ 🎉',
+  'その調子！ 💪',
+  'すごい！ ✨',
+  'よくできました 👏',
+  '完璧！ ⭐',
+  '素晴らしい！ 🌟',
+  '順調です 🔥',
+  'やったね！ 🎊',
+  'グッジョブ！ 👍',
+  '天才！ 🧠',
+  'ナイス！ 😎',
+  'お見事！ 🏆'
+];
+
+function showToast(text) {
+  const el = document.getElementById('toast');
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => el.classList.remove('show'), 1400);
+}
+
+document.getElementById('learnedBtn').addEventListener('click', () => {
+  if (!activeWords.length) return;
+  const current = activeWords[index];
+  // words配列内の該当単語を更新
+  const target = words.find(w => w.id === current.id);
+  if (!target) return;
+  target.learned = true;
+  target.learnedAt = Date.now();
+  save();
+  showToast(PRAISES[Math.floor(Math.random() * PRAISES.length)]);
+  // 次の未学習単語を表示。index はそのままで refreshActive 後に同じ位置の次を指す
+  showJa = false;
+  render();
+  speakCurrent();
+});
 
 document.getElementById('shuffleBtn').addEventListener('click', () => {
   if (words.length < 2) return;
@@ -624,6 +692,93 @@ document.getElementById('openCamera').addEventListener('click', () => { hideOver
 document.getElementById('openBulk').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); showOverlay('bulkOverlay'); });
 document.getElementById('openList').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); selectedIds = new Set(); renderList(); showOverlay('listOverlay'); });
 document.getElementById('openIO').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); document.getElementById('ioText').value = JSON.stringify(words, null, 2); showOverlay('ioOverlay'); });
+
+// 覚えた単語ページ
+document.getElementById('openLearned').addEventListener('click', () => {
+  hideOverlay(document.getElementById('menuOverlay'));
+  renderLearnedPage();
+  showOverlay('learnedOverlay');
+});
+
+function renderLearnedPage() {
+  const body = document.getElementById('learnedBody');
+  body.innerHTML = '';
+  const learned = words.filter(w => w.learned);
+  // サマリカード
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayTs = today.getTime();
+  const weekAgo = todayTs - 6 * 86400000;
+  const todayCount = learned.filter(w => (w.learnedAt || 0) >= todayTs).length;
+  const weekCount = learned.filter(w => (w.learnedAt || 0) >= weekAgo).length;
+  const summary = document.createElement('div');
+  summary.style.cssText = 'display:flex;gap:8px;margin-bottom:14px;';
+  summary.innerHTML = `
+    <div style="flex:1;background:#1b4332;border:1px solid #52b788;border-radius:10px;padding:14px;text-align:center;">
+      <div style="color:#95d5b2;font-size:11px;">合計</div>
+      <div style="color:#fff;font-size:26px;font-weight:700;">${learned.length}</div>
+    </div>
+    <div style="flex:1;background:#111;border:1px solid #333;border-radius:10px;padding:14px;text-align:center;">
+      <div style="color:#888;font-size:11px;">今日</div>
+      <div style="color:#fff;font-size:26px;font-weight:700;">${todayCount}</div>
+    </div>
+    <div style="flex:1;background:#111;border:1px solid #333;border-radius:10px;padding:14px;text-align:center;">
+      <div style="color:#888;font-size:11px;">7日間</div>
+      <div style="color:#fff;font-size:26px;font-weight:700;">${weekCount}</div>
+    </div>
+  `;
+  body.appendChild(summary);
+
+  if (!learned.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'color:#666;text-align:center;padding:30px;font-size:13px;';
+    empty.textContent = 'まだ覚えた単語がありません';
+    body.appendChild(empty);
+    return;
+  }
+
+  // 日付でグループ化(降順)
+  const groups = new Map();
+  learned.forEach(w => {
+    const ts = w.learnedAt || 0;
+    const d = new Date(ts); d.setHours(0,0,0,0);
+    const key = d.getTime();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(w);
+  });
+  const sortedKeys = [...groups.keys()].sort((a, b) => b - a);
+
+  for (const key of sortedKeys) {
+    const dateLabel = document.createElement('div');
+    dateLabel.style.cssText = 'color:#95d5b2;font-size:13px;font-weight:600;margin:14px 0 6px;padding:0 4px;';
+    const d = new Date(key);
+    const dateStr = key === 0 ? '日付不明' : d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+    const list = groups.get(key);
+    dateLabel.textContent = dateStr + '  (' + list.length + '件)';
+    body.appendChild(dateLabel);
+
+    list.forEach(w => {
+      const item = document.createElement('div');
+      item.className = 'list-item';
+      const text = document.createElement('div');
+      text.className = 'text';
+      const en = document.createElement('div'); en.className = 'en'; en.textContent = w.en;
+      const ja = document.createElement('div'); ja.className = 'ja'; ja.textContent = w.ja;
+      text.appendChild(en); text.appendChild(ja);
+      const unlearnBtn = document.createElement('button');
+      unlearnBtn.textContent = '戻す';
+      unlearnBtn.addEventListener('click', () => {
+        if (!confirm('この単語を未学習に戻しますか?')) return;
+        w.learned = false;
+        delete w.learnedAt;
+        save();
+        renderLearnedPage();
+        render();
+      });
+      item.appendChild(text); item.appendChild(unlearnBtn);
+      body.appendChild(item);
+    });
+  }
+}
 
 // バックアップ/復元
 document.getElementById('openBackup').addEventListener('click', () => {
