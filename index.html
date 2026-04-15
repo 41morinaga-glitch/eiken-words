@@ -136,8 +136,8 @@
 <div class="overlay" id="bulkOverlay">
   <header><h2>まとめて入力</h2><button data-close>閉じる</button></header>
   <div class="body">
-    <label>1行1ペア。区切りは「=」「タブ」「コロン」「スペース2つ以上」のいずれか</label>
-    <textarea id="bulkText" placeholder="apple = りんご&#10;book = 本&#10;run = 走る"></textarea>
+    <label>1行1ペア「=」「タブ」「コロン」区切り、または 教科書コピペ(エントリ番号付き)に対応</label>
+    <textarea id="bulkText" placeholder="apple = りんご&#10;book = 本&#10;&#10;または教科書をそのまま貼り付け:&#10;0009&#10;produce [prədjúːs]&#10;（製品など）を作る&#10;..."></textarea>
     <button class="btn" id="bulkSave">追加</button>
   </div>
 </div>
@@ -174,7 +174,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-122831';
+const APP_VERSION = '20260415-124316';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 let words = load();
@@ -331,7 +331,69 @@ document.getElementById('addSave').addEventListener('click', () => {
 });
 
 // Bulk
+// 旺文社系英検単語集の多行フォーマット用パーサ
+function parseTextbook(text) {
+  const rawLines = text.split(/\r?\n/).map(l => l.trim());
+  const entries = [];
+  let current = null;
+  for (const l of rawLines) {
+    if (/^\d{3,4}$/.test(l)) {
+      if (current) entries.push(current);
+      current = [];
+    } else if (current && l) {
+      current.push(l);
+    }
+  }
+  if (current) entries.push(current);
+  if (entries.length < 2) return null;
+
+  const hasJaLocal = s => /[\u3040-\u30ff\u3400-\u9fff]/.test(s);
+  const STOP = /^[▶►★•・*＊>＞!！#＃※]/;
+  const POS_MARK_SRC = '[图図国迢囮名動形副助接前代感冠]';
+
+  const pairs = [];
+  for (const lines of entries) {
+    let enIdx = -1, en = '';
+    for (let i = 0; i < lines.length; i++) {
+      const m1 = lines[i].match(/^([A-Za-z][A-Za-z'\-]{1,24})\s*\[/);
+      if (m1) { en = m1[1]; enIdx = i; break; }
+      const m2 = lines[i].match(/^([A-Za-z][A-Za-z'\-]{1,24})$/);
+      if (m2) { en = m2[1]; enIdx = i; break; }
+    }
+    if (!en) continue;
+
+    const jaParts = [];
+    for (let i = enIdx + 1; i < lines.length; i++) {
+      const l = lines[i];
+      if (STOP.test(l)) break;
+      if (/^\*?[A-Za-z]+(-[A-Za-z]+){1,}/.test(l)) break;
+      if (/^[A-Za-z][A-Za-z'\-]{1,}\s/.test(l) && hasJaLocal(l)) break;
+      if (/^[A-Za-z]/.test(l) && !hasJaLocal(l)) continue;
+      if (hasJaLocal(l) || /^[（(＜<「『【]/.test(l)) {
+        jaParts.push(l);
+      }
+    }
+    let ja = jaParts.join('').replace(/\s+/g, '');
+
+    // 末尾に連結されてしまった派生語 (例: "...に＞agreement一致、同意")
+    const derivMatch = ja.match(/^(.*?[）\)＞>」』】])([A-Za-z][A-Za-z'\-]{2,}.*)$/);
+    if (derivMatch) ja = derivMatch[1];
+    // 後続の品詞マーカー以降 (例: "...る。形自分自身の")
+    const posRe = new RegExp('(.+?[一-龥ぁ-んァ-ヶ])(' + POS_MARK_SRC + '[一-龥ぁ-んァ-ヶ].+)$');
+    const pm = ja.match(posRe);
+    if (pm && hasJaLocal(pm[1])) ja = pm[1];
+    // 安全のためIPA/括弧内英語を削除
+    ja = ja.replace(/\[[^\]]*\]/g, '').trim();
+
+    if (en && ja) pairs.push({ en, ja });
+  }
+  return pairs.length ? pairs : null;
+}
+
 function parsePairs(text) {
+  const tb = parseTextbook(text);
+  if (tb && tb.length) return tb;
+
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
   const out = [];
   for (const line of lines) {
@@ -340,7 +402,6 @@ function parsePairs(text) {
     if (m.length < 2) m = line.split(/\s*[:：]\s*/);
     if (m.length < 2) m = line.split(/\s{2,}/);
     if (m.length < 2) {
-      // fallback: first whitespace = split EN from JA
       const idx = line.search(/\s/);
       if (idx > 0) m = [line.slice(0, idx), line.slice(idx+1)];
     }
