@@ -172,6 +172,7 @@
     <div id="syncStatusBox" style="background:#111;border:1px solid #222;border-radius:8px;padding:12px;margin-bottom:12px;">
       <div style="color:#888;font-size:12px;">状態</div>
       <div id="syncStatusText" style="color:#fff;font-size:14px;margin-top:4px;">未接続</div>
+      <div id="syncGistId" style="color:#666;font-size:10px;margin-top:6px;word-break:break-all;font-family:monospace;"></div>
     </div>
     <label>GitHub Personal Access Token (gist権限)</label>
     <input type="password" id="syncToken" placeholder="ghp_xxxxxxxxxxxx" autocapitalize="off" autocorrect="off" spellcheck="false">
@@ -183,6 +184,7 @@
     <button class="btn" id="syncConnect">接続 (Gistを自動作成/検出)</button>
     <button class="btn secondary" id="syncPullBtn">今すぐ取得 (pull)</button>
     <button class="btn secondary" id="syncPushBtn">今すぐ送信 (push)</button>
+    <button class="btn secondary" id="syncCleanup">重複Gistを整理</button>
     <button class="btn danger" id="syncDisconnect" style="display:none;">切断 (トークン削除)</button>
   </div>
 </div>
@@ -200,7 +202,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-130425';
+const APP_VERSION = '20260415-132226';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -265,17 +267,17 @@ async function gistApi(path, options = {}) {
   return res.json();
 }
 
-async function findOrCreateGist(token) {
-  // 自分のGist一覧から既存を探す
-  const listRes = await fetch('https://api.github.com/gists?per_page=100', {
+async function listMatchingGists(token) {
+  const res = await fetch('https://api.github.com/gists?per_page=100', {
     headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github+json' }
   });
-  if (!listRes.ok) throw new Error('認証失敗 (status ' + listRes.status + ')');
-  const gists = await listRes.json();
-  const existing = gists.find(g => g.files && g.files[GIST_FILENAME]);
-  if (existing) return existing.id;
-  // 新規作成
-  const createRes = await fetch('https://api.github.com/gists', {
+  if (!res.ok) throw new Error('認証失敗 (status ' + res.status + ')');
+  const gists = await res.json();
+  return gists.filter(g => g.files && g.files[GIST_FILENAME]);
+}
+
+async function createGistWithWords(token, initialWords) {
+  const res = await fetch('https://api.github.com/gists', {
     method: 'POST',
     headers: {
       'Authorization': 'token ' + token,
@@ -286,13 +288,20 @@ async function findOrCreateGist(token) {
       description: '英検単語アプリのデータ',
       public: false,
       files: {
-        [GIST_FILENAME]: { content: JSON.stringify({ words: [], updatedAt: Date.now() }, null, 2) }
+        [GIST_FILENAME]: { content: JSON.stringify({ words: initialWords, updatedAt: Date.now() }, null, 2) }
       }
     })
   });
-  if (!createRes.ok) throw new Error('Gist作成失敗');
-  const created = await createRes.json();
-  return created.id;
+  if (!res.ok) throw new Error('Gist作成失敗');
+  return (await res.json()).id;
+}
+
+async function deleteGist(token, gistId) {
+  const res = await fetch('https://api.github.com/gists/' + gistId, {
+    method: 'DELETE',
+    headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github+json' }
+  });
+  if (!res.ok) throw new Error('削除失敗 ' + res.status);
 }
 
 async function pullFromGist(force = false) {
@@ -306,6 +315,12 @@ async function pullFromGist(force = false) {
     if (!Array.isArray(parsed.words)) { setSyncStatus('フォーマット不正', '#f66'); return; }
     const remoteAt = parsed.updatedAt || 0;
     const localAt = parseInt(localStorage.getItem(UPDATED_KEY) || '0');
+    // 安全弁: 強制ではない & リモート空 & ローカルに単語あり → 上書き禁止、代わりにpush
+    if (!force && parsed.words.length === 0 && words.length > 0) {
+      setSyncStatus('リモート空・ローカル ' + words.length + '件 → 送信します');
+      await pushToGist();
+      return;
+    }
     if (force || remoteAt > localAt) {
       words = parsed.words.map(w => ({ id: w.id || uid(), en: String(w.en||''), ja: String(w.ja||'') })).filter(w => w.en && w.ja);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
@@ -485,6 +500,7 @@ document.getElementById('openSync').addEventListener('click', () => {
   const tokenInput = document.getElementById('syncToken');
   tokenInput.value = syncConfig ? syncConfig.token : '';
   document.getElementById('syncDisconnect').style.display = syncConfig ? 'block' : 'none';
+  document.getElementById('syncGistId').textContent = syncConfig ? 'Gist: ' + syncConfig.gistId : '';
   if (!syncConfig) setSyncStatus('未接続');
   showOverlay('syncOverlay');
 });
@@ -494,18 +510,48 @@ document.getElementById('syncConnect').addEventListener('click', async () => {
   if (!token) { alert('トークンを入力してください'); return; }
   setSyncStatus('Gist検索中...');
   try {
-    const gistId = await findOrCreateGist(token);
-    syncConfig = { token, gistId };
-    saveSyncConfig();
-    setSyncStatus('接続完了 (Gist: ' + gistId.slice(0, 8) + '...)');
+    const matching = await listMatchingGists(token);
+    let gistId;
+    if (matching.length === 0) {
+      // 新規作成: 現在のローカル単語で初期化(空で作らない)
+      gistId = await createGistWithWords(token, words);
+      syncConfig = { token, gistId };
+      saveSyncConfig();
+      localStorage.setItem(UPDATED_KEY, String(Date.now()));
+      setSyncStatus('新規作成 (' + words.length + '件で初期化)');
+    } else {
+      // 複数ある場合は最新更新のものを採用
+      matching.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
+      gistId = matching[0].id;
+      syncConfig = { token, gistId };
+      saveSyncConfig();
+      if (matching.length > 1) {
+        setSyncStatus('既存Gist発見 (' + matching.length + '個、最新を採用)');
+      } else {
+        setSyncStatus('既存Gist発見');
+      }
+      await pullFromGist(); // 安全弁付き
+    }
     document.getElementById('syncDisconnect').style.display = 'block';
-    await pullFromGist();
-    // もしリモートが空なら現在のローカルをpush
-    const remoteAt = parseInt(localStorage.getItem(UPDATED_KEY) || '0');
-    if (words.length && !remoteAt) await pushToGist();
+    document.getElementById('syncGistId').textContent = 'Gist: ' + gistId;
   } catch (e) {
     setSyncStatus('接続失敗: ' + e.message, '#f66');
     alert('接続失敗: ' + e.message);
+  }
+});
+
+document.getElementById('syncCleanup').addEventListener('click', async () => {
+  if (!syncConfig) { alert('先に接続してください'); return; }
+  try {
+    const matching = await listMatchingGists(syncConfig.token);
+    const others = matching.filter(g => g.id !== syncConfig.gistId);
+    if (!others.length) { alert('重複Gistはありません'); return; }
+    if (!confirm(others.length + '個の重複Gistを削除しますか?\n(現在接続中のGistは保持されます)')) return;
+    for (const g of others) await deleteGist(syncConfig.token, g.id);
+    alert(others.length + '個を削除しました');
+    setSyncStatus('重複整理完了');
+  } catch (e) {
+    alert('エラー: ' + e.message);
   }
 });
 
