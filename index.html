@@ -229,7 +229,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-140606';
+const APP_VERSION = '20260415-140944';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -696,9 +696,12 @@ document.getElementById('openIO').addEventListener('click', () => { hideOverlay(
 // 覚えた単語ページ
 document.getElementById('openLearned').addEventListener('click', () => {
   hideOverlay(document.getElementById('menuOverlay'));
+  learnedSelected = new Set();
   renderLearnedPage();
   showOverlay('learnedOverlay');
 });
+
+let learnedSelected = new Set();
 
 function renderLearnedPage() {
   const body = document.getElementById('learnedBody');
@@ -736,6 +739,20 @@ function renderLearnedPage() {
     return;
   }
 
+  // ツールバー (sticky)
+  const toolbar = document.createElement('div');
+  toolbar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 0;position:sticky;top:0;background:#000;z-index:2;border-bottom:1px solid #222;margin-bottom:10px;flex-wrap:wrap;';
+  toolbar.innerHTML = `
+    <label style="display:flex;align-items:center;gap:6px;margin:0;color:#ccc;font-size:13px;cursor:pointer;">
+      <input type="checkbox" id="learnedSelAll" style="width:18px;height:18px;">全選択
+    </label>
+    <span id="learnedSelCount" style="color:#888;font-size:12px;margin-left:4px;">0 / ${learned.length}</span>
+    <span style="flex:1;"></span>
+    <button id="learnedUnlearnSel" style="background:#1b4332;border:1px solid #52b788;color:#95d5b2;padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;">選択を戻す</button>
+    <button id="learnedUnlearnAll" style="background:#611;border:none;color:#fbb;padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;">全て戻す</button>
+  `;
+  body.appendChild(toolbar);
+
   // 日付でグループ化(降順)
   const groups = new Map();
   learned.forEach(w => {
@@ -759,25 +776,81 @@ function renderLearnedPage() {
     list.forEach(w => {
       const item = document.createElement('div');
       item.className = 'list-item';
+
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.style.cssText = 'width:20px;height:20px;margin-right:4px;flex-shrink:0;';
+      cb.checked = learnedSelected.has(w.id);
+      cb.addEventListener('change', () => {
+        if (cb.checked) learnedSelected.add(w.id); else learnedSelected.delete(w.id);
+        updateLearnedToolbar(learned.length);
+      });
+
       const text = document.createElement('div');
       text.className = 'text';
       const en = document.createElement('div'); en.className = 'en'; en.textContent = w.en;
       const ja = document.createElement('div'); ja.className = 'ja'; ja.textContent = w.ja;
       text.appendChild(en); text.appendChild(ja);
+
       const unlearnBtn = document.createElement('button');
       unlearnBtn.textContent = '戻す';
       unlearnBtn.addEventListener('click', () => {
         if (!confirm('この単語を未学習に戻しますか?')) return;
         w.learned = false;
         delete w.learnedAt;
+        learnedSelected.delete(w.id);
         save();
         renderLearnedPage();
         render();
       });
-      item.appendChild(text); item.appendChild(unlearnBtn);
+
+      item.appendChild(cb); item.appendChild(text); item.appendChild(unlearnBtn);
       body.appendChild(item);
     });
   }
+
+  updateLearnedToolbar(learned.length);
+  // ツールバーイベントバインド
+  document.getElementById('learnedSelAll').onclick = (e) => {
+    if (e.target.checked) learned.forEach(w => learnedSelected.add(w.id));
+    else learnedSelected.clear();
+    renderLearnedPage();
+  };
+  document.getElementById('learnedUnlearnSel').onclick = () => {
+    if (!learnedSelected.size) { alert('選択されていません'); return; }
+    if (!confirm(learnedSelected.size + '件を未学習に戻しますか?')) return;
+    words.forEach(w => {
+      if (learnedSelected.has(w.id)) {
+        w.learned = false;
+        delete w.learnedAt;
+      }
+    });
+    learnedSelected.clear();
+    save();
+    renderLearnedPage();
+    render();
+  };
+  document.getElementById('learnedUnlearnAll').onclick = () => {
+    if (!learned.length) return;
+    if (!confirm('全' + learned.length + '件を未学習に戻しますか?')) return;
+    words.forEach(w => {
+      if (w.learned) {
+        w.learned = false;
+        delete w.learnedAt;
+      }
+    });
+    learnedSelected.clear();
+    save();
+    renderLearnedPage();
+    render();
+  };
+}
+
+function updateLearnedToolbar(total) {
+  const cnt = document.getElementById('learnedSelCount');
+  if (cnt) cnt.textContent = learnedSelected.size + ' / ' + total;
+  const selAll = document.getElementById('learnedSelAll');
+  if (selAll) selAll.checked = total > 0 && learnedSelected.size === total;
 }
 
 // バックアップ/復元
