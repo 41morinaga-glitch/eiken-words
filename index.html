@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>英検単語</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; }
@@ -103,9 +106,9 @@
   <header><h2>単語を追加</h2><button data-close>閉じる</button></header>
   <div class="body">
     <label>英語</label>
-    <input type="text" id="addEn" autocapitalize="off" autocorrect="off">
+    <input type="text" id="addEn" lang="en" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false">
     <label>日本語訳</label>
-    <input type="text" id="addJa">
+    <input type="text" id="addJa" lang="ja">
     <button class="btn" id="addSave">追加</button>
   </div>
 </div>
@@ -152,9 +155,9 @@
   <header><h2>編集</h2><button data-close>閉じる</button></header>
   <div class="body">
     <label>英語</label>
-    <input type="text" id="editEn">
+    <input type="text" id="editEn" lang="en" inputmode="text" autocapitalize="off" autocorrect="off" spellcheck="false">
     <label>日本語訳</label>
-    <input type="text" id="editJa">
+    <input type="text" id="editJa" lang="ja">
     <button class="btn" id="editSave">保存</button>
     <button class="btn danger" id="editDelete">削除</button>
   </div>
@@ -173,6 +176,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
+const APP_VERSION = '20260415-113938';
 const STORAGE_KEY = 'eiken_words_v1';
 let words = load();
 let index = 0;
@@ -501,6 +505,23 @@ document.addEventListener('keydown', e => {
 });
 
 render();
+
+// 自動更新チェック: リモートの index.html を取得し APP_VERSION が変わっていればリロード
+async function checkForUpdate() {
+  try {
+    const res = await fetch('./index.html?_=' + Date.now(), { cache: 'no-store' });
+    if (!res.ok) return;
+    const text = await res.text();
+    const m = text.match(/const APP_VERSION = '([^']+)'/);
+    if (m && m[1] && m[1] !== APP_VERSION && m[1] !== '20260415-113938') {
+      console.log('新バージョン検出:', m[1], '→ リロード');
+      location.reload();
+    }
+  } catch (e) {}
+}
+setTimeout(checkForUpdate, 3000);
+setInterval(checkForUpdate, 5 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
 </script>
 </body>
 </html>
