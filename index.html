@@ -19,6 +19,9 @@
   #counter { font-variant-numeric: tabular-nums; }
   #menuBtn { position: fixed; right: calc(16px + env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; background: #222; border: 1px solid #333; color: #fff; font-size: 24px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 50; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
   #menuBtn:active { background: #333; }
+  #speakBtn { position: fixed; left: calc(16px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; background: #222; border: 1px solid #333; color: #fff; font-size: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 50; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+  #speakBtn:active { background: #333; }
+  #speakBtn.off { color: #666; }
 
   #card { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; }
   #card-inner { max-width: 100%; }
@@ -78,6 +81,7 @@
   <div id="hint">タップ:反転 ・ ↑スワイプ:次 ・ ↓スワイプ:前</div>
 </div>
 
+<button id="speakBtn" aria-label="読み上げ">🔊</button>
 <button id="menuBtn" aria-label="メニュー">☰</button>
 
 <!-- Menu overlay -->
@@ -170,13 +174,27 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-115850';
+const APP_VERSION = '20260415-120450';
 const STORAGE_KEY = 'eiken_words_v1';
+const SPEAK_KEY = 'eiken_speak_v1';
 let words = load();
 let index = 0;
 let showJa = false; // false: EN shown, true: JA shown
 let editingId = null;
 let ocrPairs = [];
+let speakEnabled = localStorage.getItem(SPEAK_KEY) !== '0';
+
+function speak(text) {
+  if (!speakEnabled || !text) return;
+  if (!('speechSynthesis' in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US';
+    u.rate = 0.9;
+    window.speechSynthesis.speak(u);
+  } catch (e) {}
+}
 
 function load() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
@@ -220,6 +238,7 @@ function render() {
   cEl.textContent = (index + 1) + ' / ' + words.length;
   hEl.textContent = showJa ? 'タップで英語' : 'タップで日本語';
   requestAnimationFrame(fitWordToWidth);
+  if (!showJa) speak(w.en);
 }
 
 window.addEventListener('resize', () => { if (words.length) fitWordToWidth(); });
@@ -256,6 +275,34 @@ function flip() { if (!words.length) return; showJa = !showJa; render(); }
   });
 
   card.addEventListener('pointercancel', () => { pid = null; });
+})();
+
+// 読み上げボタン: タップで現在の単語を再生、長押しでON/OFF
+(function() {
+  const btn = document.getElementById('speakBtn');
+  function updateBtn() { btn.classList.toggle('off', !speakEnabled); btn.textContent = speakEnabled ? '🔊' : '🔇'; }
+  updateBtn();
+  let pressTimer = null;
+  let longPressed = false;
+  btn.addEventListener('pointerdown', () => {
+    longPressed = false;
+    pressTimer = setTimeout(() => {
+      longPressed = true;
+      speakEnabled = !speakEnabled;
+      localStorage.setItem(SPEAK_KEY, speakEnabled ? '1' : '0');
+      updateBtn();
+      if (!speakEnabled) window.speechSynthesis && window.speechSynthesis.cancel();
+    }, 500);
+  });
+  btn.addEventListener('pointerup', e => {
+    clearTimeout(pressTimer);
+    if (longPressed) { e.preventDefault(); return; }
+    if (!words.length || showJa) return;
+    const prev = speakEnabled; speakEnabled = true;
+    speak(words[index].en);
+    speakEnabled = prev;
+  });
+  btn.addEventListener('pointercancel', () => clearTimeout(pressTimer));
 })();
 
 document.getElementById('shuffleBtn').addEventListener('click', () => {
