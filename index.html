@@ -92,7 +92,7 @@
   </header>
   <div class="body">
     <button class="menu-item" id="openAdd">＋ 手動で単語を追加<small>英語と日本語訳を1件ずつ入力</small></button>
-    <button class="menu-item" id="openCamera">📷 カメラで取り込み<small>撮影した画像から文字を認識(OCR)</small></button>
+    <button class="menu-item" id="openCamera">📷 画像から取り込み<small>アルバムの写真 or その場で撮影した画像をOCR</small></button>
     <button class="menu-item" id="openBulk">📝 まとめて入力<small>「英語 = 日本語」を改行区切りで貼り付け</small></button>
     <button class="menu-item" id="openList">📋 一覧・編集<small>追加した単語の編集・削除</small></button>
     <button class="menu-item" id="openIO">💾 エクスポート / インポート<small>JSONでバックアップ・復元</small></button>
@@ -113,10 +113,10 @@
 
 <!-- Camera / OCR -->
 <div class="overlay" id="camOverlay">
-  <header><h2>カメラで取り込み</h2><button data-close>閉じる</button></header>
+  <header><h2>画像から取り込み</h2><button data-close>閉じる</button></header>
   <div class="body">
-    <label>画像を選択または撮影</label>
-    <input type="file" id="camInput" accept="image/*" capture="environment">
+    <label>画像を選択(アルバムから選ぶ or その場で撮影)</label>
+    <input type="file" id="camInput" accept="image/*">
     <img id="preview">
     <div id="ocrStatus"></div>
     <label>認識結果(編集可)</label>
@@ -174,7 +174,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-121935';
+const APP_VERSION = '20260415-122158';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 let words = load();
