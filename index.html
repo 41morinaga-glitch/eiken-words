@@ -22,7 +22,7 @@
   #speakBtn { position: fixed; left: calc(16px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; background: #222; border: 1px solid #333; color: #fff; font-size: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 50; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
   #speakBtn:active { background: #333; }
   #speakBtn.off { color: #666; }
-  #toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8); background: rgba(0,0,0,0.9); border: 2px solid #52b788; color: #fff; padding: 24px 36px; border-radius: 16px; font-size: 24px; font-weight: 700; z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s; box-shadow: 0 10px 40px rgba(82,183,136,0.5); text-align: center; }
+  #toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8); background: rgba(0,0,0,0.9); border: 2px solid #52b788; color: #fff; padding: 22px 28px; border-radius: 16px; font-size: clamp(18px, 5vw, 26px); font-weight: 700; z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s; box-shadow: 0 10px 40px rgba(82,183,136,0.5); text-align: center; white-space: nowrap; max-width: 92vw; }
   #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 
   #card { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; }
@@ -226,7 +226,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-150035';
+const APP_VERSION = '20260415-150503';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
