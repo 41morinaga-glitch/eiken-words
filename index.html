@@ -202,7 +202,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-134058';
+const APP_VERSION = '20260415-134530';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -376,6 +376,17 @@ function save() {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
+// 日本語訳のフォーマット: 「。」の後で改行 / 括弧の前で改行
+function formatJa(s) {
+  if (!s) return '';
+  let t = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  t = t.replace(/。(?!$)/g, '。<br>');
+  t = t.replace(/(.)([（(〈《「『【])/g, '$1<br>$2');
+  t = t.replace(/(<br>\s*)+/g, '<br>');
+  t = t.replace(/^<br>/, '');
+  return t;
+}
+
 function fitWordToWidth() {
   const wEl = document.getElementById('word');
   const card = document.getElementById('card');
@@ -406,7 +417,7 @@ function render() {
   if (index >= words.length) index = 0;
   if (index < 0) index = words.length - 1;
   const w = words[index];
-  wEl.textContent = showJa ? w.ja : w.en;
+  if (showJa) { wEl.innerHTML = formatJa(w.ja); } else { wEl.textContent = w.en; }
   wEl.className = showJa ? 'ja' : '';
   cEl.textContent = (index + 1) + ' / ' + words.length;
   hEl.textContent = showJa ? 'タップで英語' : 'タップで日本語';
