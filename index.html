@@ -170,7 +170,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-115327';
+const APP_VERSION = '20260415-115850';
 const STORAGE_KEY = 'eiken_words_v1';
 let words = load();
 let index = 0;
@@ -532,8 +532,8 @@ async function checkForUpdate() {
     const res = await fetch('./index.html?_=' + Date.now(), { cache: 'no-store' });
     if (!res.ok) return;
     const text = await res.text();
-    const m = text.match(/const APP_VERSION = '20260415-115327']+)'/);
-    if (m && m[1] && m[1] !== APP_VERSION && m[1] !== '20260415-113938') {
+    const m = text.match(/const APP_VERSION = '([^']+)'/);
+    if (m && m[1] && m[1] !== APP_VERSION && m[1] !== '__APP_VERSION__') {
       console.log('新バージョン検出:', m[1], '→ リロード');
       location.reload();
     }
