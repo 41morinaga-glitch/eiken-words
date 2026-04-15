@@ -26,7 +26,7 @@
   #card { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; }
   #card-inner { max-width: 100%; }
   #word { font-size: clamp(84px, 24vw, 168px); font-weight: 600; line-height: 1.3; transition: opacity 0.15s; white-space: nowrap; }
-  #word.ja { font-size: clamp(26px, 6.5vw, 48px); white-space: normal; word-break: keep-all; overflow-wrap: break-word; line-break: strict; line-height: 1.6; max-width: 92%; font-weight: 500; }
+  #word.ja { font-size: clamp(26px, 6.5vw, 48px); white-space: normal; word-break: normal; overflow-wrap: anywhere; line-break: strict; line-height: 1.7; max-width: 88%; font-weight: 500; text-align: center; }
   #hint { position: absolute; bottom: 80px; left: 0; right: 0; text-align: center; color: #666; font-size: 14px; pointer-events: none; }
 
   #card { touch-action: none; }
@@ -79,7 +79,7 @@
 
 <div id="card">
   <div id="word" class="ja">単語がありません</div>
-  <div id="hint">タップ:反転 ・ ↑スワイプ:次 ・ ↓スワイプ:前</div>
+  <div id="hint">タップ/クリック:反転 ・ 上:次 ・ 下:前 (スワイプ/ホイール/矢印)</div>
 </div>
 
 <button id="speakBtn" aria-label="読み上げ">🔊</button>
@@ -202,7 +202,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-132939';
+const APP_VERSION = '20260415-133555';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -376,16 +376,6 @@ function save() {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
-// 日本語の自然な改行位置にゼロ幅スペース(U+200B)を挿入
-function addJaBreakOpportunities(s) {
-  if (!s) return s;
-  // 句読点・閉じ括弧の後ろに改行機会を追加
-  s = s.replace(/([、。，．,\.）\)〉》」』】〕])/g, '$1\u200B');
-  // 開き括弧の前にも改行機会
-  s = s.replace(/([（\(〈《「『【〔])/g, '\u200B$1');
-  return s;
-}
-
 function fitWordToWidth() {
   const wEl = document.getElementById('word');
   const card = document.getElementById('card');
@@ -416,7 +406,7 @@ function render() {
   if (index >= words.length) index = 0;
   if (index < 0) index = words.length - 1;
   const w = words[index];
-  wEl.textContent = showJa ? addJaBreakOpportunities(w.ja) : w.en;
+  wEl.textContent = showJa ? w.ja : w.en;
   wEl.className = showJa ? 'ja' : '';
   cEl.textContent = (index + 1) + ' / ' + words.length;
   hEl.textContent = showJa ? 'タップで英語' : 'タップで日本語';
@@ -434,7 +424,7 @@ function next() { if (!words.length) return; index = (index + 1) % words.length;
 function prev() { if (!words.length) return; index = (index - 1 + words.length) % words.length; showJa = false; render(); speakCurrent(); }
 function flip() { if (!words.length) return; showJa = !showJa; render(); speakCurrent(); }
 
-// タップで反転、上スワイプで次、下スワイプで前 (Pointer Events)
+// タップで反転、上スワイプ(orホイール上)で次、下スワイプ(orホイール下)で前
 (function() {
   const card = document.getElementById('card');
   let startX = 0, startY = 0, pid = null;
@@ -446,6 +436,9 @@ function flip() { if (!words.length) return; showJa = !showJa; render(); speakCu
     pid = e.pointerId;
     startX = e.clientX;
     startY = e.clientY;
+    // PC: ドラッグ中のテキスト選択やドラッグ&ドロップを防止
+    if (card.setPointerCapture) { try { card.setPointerCapture(e.pointerId); } catch(_){} }
+    e.preventDefault();
   });
 
   card.addEventListener('pointerup', e => {
@@ -462,6 +455,18 @@ function flip() { if (!words.length) return; showJa = !showJa; render(); speakCu
   });
 
   card.addEventListener('pointercancel', () => { pid = null; });
+
+  // PC: マウスホイールで次/前
+  let wheelCooldown = 0;
+  card.addEventListener('wheel', e => {
+    if (document.querySelector('.overlay.show')) return;
+    e.preventDefault();
+    const now = Date.now();
+    if (now - wheelCooldown < 250) return;
+    if (Math.abs(e.deltaY) < 10) return;
+    wheelCooldown = now;
+    if (e.deltaY < 0) next(); else prev();
+  }, { passive: false });
 })();
 
 // 読み上げボタン: タップでON/OFF切替
@@ -1160,12 +1165,13 @@ document.addEventListener('touchend', e => {
   lastTouch = now;
 }, { passive: false });
 
-// Keyboard support (for desktop testing)
+// Keyboard: Space/Enter=反転, ↑=次, ↓=前
 document.addEventListener('keydown', e => {
   if (document.querySelector('.overlay.show')) return;
-  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); next(); }
-  else if (e.key === 'ArrowLeft') prev();
-  else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); flip(); }
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); }
+  else if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); next(); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
 });
 
 render();
