@@ -176,7 +176,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-125251';
+const APP_VERSION = '20260415-125733';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 let words = load();
@@ -240,14 +240,18 @@ function render() {
   cEl.textContent = (index + 1) + ' / ' + words.length;
   hEl.textContent = showJa ? 'タップで英語' : 'タップで日本語';
   requestAnimationFrame(fitWordToWidth);
-  if (!showJa) speak(w.en);
+}
+
+function speakCurrent() {
+  if (!words.length || showJa) return;
+  speak(words[index].en);
 }
 
 window.addEventListener('resize', () => { if (words.length) fitWordToWidth(); });
 
-function next() { if (!words.length) return; index = (index + 1) % words.length; showJa = false; render(); }
-function prev() { if (!words.length) return; index = (index - 1 + words.length) % words.length; showJa = false; render(); }
-function flip() { if (!words.length) return; showJa = !showJa; render(); }
+function next() { if (!words.length) return; index = (index + 1) % words.length; showJa = false; render(); speakCurrent(); }
+function prev() { if (!words.length) return; index = (index - 1 + words.length) % words.length; showJa = false; render(); speakCurrent(); }
+function flip() { if (!words.length) return; showJa = !showJa; render(); speakCurrent(); }
 
 // タップで反転、上スワイプで次、下スワイプで前 (Pointer Events)
 (function() {
