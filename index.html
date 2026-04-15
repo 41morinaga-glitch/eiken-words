@@ -226,7 +226,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-145058';
+const APP_VERSION = '20260415-145427';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -456,21 +456,30 @@ function deleteBackup(ts) {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
-// 日本語訳のフォーマット: 句読点・閉じ括弧の後で改行 / 開き括弧の前で改行
+// 日本語訳のフォーマット: 区切り位置で分割 → 短すぎる断片は結合して読みやすく
 function formatJa(s) {
   if (!s) return '';
+  const MIN = 8;
   let t = s;
-  // 閉じ括弧の後で改行 (＞ 〉 》 」 』 】 ）) ) と句読点の後でも改行
-  t = t.replace(/([。、，,．）)〉》」』】＞>])(?!$)/g, '$1\n');
-  // 開き括弧の前で改行
-  t = t.replace(/(.)([（(〈《「『【＜<])/g, '$1\n$2');
-  // 連続する \n をまとめる
-  t = t.replace(/\n+/g, '\n');
-  t = t.replace(/^\n/, '');
-  // HTMLエスケープ後、\n を <br> へ
-  t = t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  t = t.replace(/\n/g, '<br>');
-  return t;
+  t = t.replace(/([。、，,．）)〉》」』】＞>])/g, '$1\0');
+  t = t.replace(/([（(〈《「『【＜<])/g, '\0$1');
+  const chunks = t.split('\0').map(c => c.trim()).filter(Boolean);
+  const merged = [];
+  for (const c of chunks) {
+    if (merged.length && merged[merged.length - 1].length < MIN) {
+      merged[merged.length - 1] += c;
+    } else {
+      merged.push(c);
+    }
+  }
+  while (merged.length > 1 && merged[merged.length - 1].length < MIN) {
+    const last = merged.pop();
+    merged[merged.length - 1] += last;
+  }
+  let out = merged.join('\n');
+  out = out.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  out = out.replace(/\n/g, '<br>');
+  return out;
 }
 
 function fitWordToWidth() {
