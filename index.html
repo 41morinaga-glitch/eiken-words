@@ -26,10 +26,7 @@
   #word.ja { font-size: clamp(72px, 18vw, 132px); white-space: normal; word-break: break-word; }
   #hint { position: absolute; bottom: 80px; left: 0; right: 0; text-align: center; color: #666; font-size: 14px; pointer-events: none; }
 
-  .zone { position: absolute; top: 0; bottom: 0; width: 33.33%; z-index: 5; }
-  .zone.left { left: 0; }
-  .zone.center { left: 33.33%; }
-  .zone.right { right: 0; }
+  #card { touch-action: none; }
 
   #empty { color: #666; font-size: 18px; text-align: center; padding: 20px; }
 
@@ -78,10 +75,7 @@
 
 <div id="card">
   <div id="word">単語がありません</div>
-  <div id="hint">左:戻る ・ 中央:反転 ・ 右:進む</div>
-  <div class="zone left" id="zoneLeft"></div>
-  <div class="zone center" id="zoneCenter"></div>
-  <div class="zone right" id="zoneRight"></div>
+  <div id="hint">タップ:反転 ・ ↑スワイプ:次 ・ ↓スワイプ:前</div>
 </div>
 
 <button id="menuBtn" aria-label="メニュー">☰</button>
@@ -176,7 +170,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-113938';
+const APP_VERSION = '20260415-114930';
 const STORAGE_KEY = 'eiken_words_v1';
 let words = load();
 let index = 0;
@@ -214,7 +208,7 @@ function render() {
     wEl.textContent = '単語がありません';
     wEl.className = '';
     cEl.textContent = '0 / 0';
-    hEl.textContent = '左:戻る ・ 中央:反転 ・ 右:進む';
+    hEl.textContent = 'タップ:反転 ・ ↑:次 ・ ↓:前';
     wEl.style.fontSize = '';
     return;
   }
@@ -234,9 +228,49 @@ function next() { if (!words.length) return; index = (index + 1) % words.length;
 function prev() { if (!words.length) return; index = (index - 1 + words.length) % words.length; showJa = false; render(); }
 function flip() { if (!words.length) return; showJa = !showJa; render(); }
 
-document.getElementById('zoneRight').addEventListener('click', next);
-document.getElementById('zoneLeft').addEventListener('click', prev);
-document.getElementById('zoneCenter').addEventListener('click', flip);
+// タップで反転、上スワイプで次、下スワイプで前
+(function() {
+  const card = document.getElementById('card');
+  let startX = 0, startY = 0, startT = 0, tracking = false;
+  const THRESHOLD = 40;
+
+  card.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) { tracking = false; return; }
+    tracking = true;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    startT = Date.now();
+  }, { passive: true });
+
+  card.addEventListener('touchend', e => {
+    if (!tracking) return;
+    tracking = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    const adx = Math.abs(dx), ady = Math.abs(dy);
+    if (ady > THRESHOLD && ady > adx) {
+      if (dy < 0) next(); else prev();
+    } else if (adx < 10 && ady < 10) {
+      flip();
+    }
+  }, { passive: true });
+
+  // マウス(デスクトップ)用
+  let mDown = false, mX = 0, mY = 0;
+  card.addEventListener('mousedown', e => { mDown = true; mX = e.clientX; mY = e.clientY; });
+  card.addEventListener('mouseup', e => {
+    if (!mDown) return;
+    mDown = false;
+    const dx = e.clientX - mX, dy = e.clientY - mY;
+    const adx = Math.abs(dx), ady = Math.abs(dy);
+    if (ady > THRESHOLD && ady > adx) {
+      if (dy < 0) next(); else prev();
+    } else if (adx < 5 && ady < 5) {
+      flip();
+    }
+  });
+})();
 
 document.getElementById('shuffleBtn').addEventListener('click', () => {
   if (words.length < 2) return;
@@ -512,7 +546,7 @@ async function checkForUpdate() {
     const res = await fetch('./index.html?_=' + Date.now(), { cache: 'no-store' });
     if (!res.ok) return;
     const text = await res.text();
-    const m = text.match(/const APP_VERSION = '([^']+)'/);
+    const m = text.match(/const APP_VERSION = '20260415-114930']+)'/);
     if (m && m[1] && m[1] !== APP_VERSION && m[1] !== '20260415-113938') {
       console.log('新バージョン検出:', m[1], '→ リロード');
       location.reload();
