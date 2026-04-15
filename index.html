@@ -73,6 +73,7 @@
 
 <div id="topbar">
   <span id="counter">0 / 0</span>
+  <span id="syncBadge" style="font-size:12px;color:#666;"></span>
   <button id="shuffleBtn">↻</button>
 </div>
 
@@ -95,6 +96,7 @@
     <button class="menu-item" id="openCamera">📷 画像から取り込み<small>アルバムの写真 or その場で撮影した画像をOCR</small></button>
     <button class="menu-item" id="openBulk">📝 まとめて入力<small>「英語 = 日本語」を改行区切りで貼り付け</small></button>
     <button class="menu-item" id="openList">📋 一覧・編集<small>追加した単語の編集・削除</small></button>
+    <button class="menu-item" id="openSync">☁️ 同期設定<small>GitHub Gist経由で複数端末と自動同期</small></button>
     <button class="menu-item" id="openIO">💾 エクスポート / インポート<small>JSONでバックアップ・復元</small></button>
   </div>
 </div>
@@ -163,6 +165,28 @@
   </div>
 </div>
 
+<!-- Sync -->
+<div class="overlay" id="syncOverlay">
+  <header><h2>同期設定</h2><button data-close>閉じる</button></header>
+  <div class="body">
+    <div id="syncStatusBox" style="background:#111;border:1px solid #222;border-radius:8px;padding:12px;margin-bottom:12px;">
+      <div style="color:#888;font-size:12px;">状態</div>
+      <div id="syncStatusText" style="color:#fff;font-size:14px;margin-top:4px;">未接続</div>
+    </div>
+    <label>GitHub Personal Access Token (gist権限)</label>
+    <input type="password" id="syncToken" placeholder="ghp_xxxxxxxxxxxx" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <div style="color:#666;font-size:11px;margin-top:4px;">
+      ① <span style="color:#4ea1ff;">github.com/settings/tokens/new</span><br>
+      ② Note: eiken-sync / Expiration: 任意 / Scopes: <b>gist</b> のみ<br>
+      ③ Generate token → コピーして上記に貼付け
+    </div>
+    <button class="btn" id="syncConnect">接続 (Gistを自動作成/検出)</button>
+    <button class="btn secondary" id="syncPullBtn">今すぐ取得 (pull)</button>
+    <button class="btn secondary" id="syncPushBtn">今すぐ送信 (push)</button>
+    <button class="btn danger" id="syncDisconnect" style="display:none;">切断 (トークン削除)</button>
+  </div>
+</div>
+
 <!-- IO -->
 <div class="overlay" id="ioOverlay">
   <header><h2>エクスポート / インポート</h2><button data-close>閉じる</button></header>
@@ -176,9 +200,12 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-125733';
+const APP_VERSION = '20260415-130425';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
+const SYNC_KEY = 'eiken_sync_v1';
+const UPDATED_KEY = 'eiken_updated_v1';
+const GIST_FILENAME = 'eiken-words.json';
 let words = load();
 let index = 0;
 let showJa = false; // false: EN shown, true: JA shown
@@ -198,11 +225,140 @@ function speak(text) {
   } catch (e) {}
 }
 
+// ---- GitHub Gist 同期 ----
+let syncConfig = null;
+let pushTimer = null;
+
+function loadSyncConfig() {
+  try { syncConfig = JSON.parse(localStorage.getItem(SYNC_KEY)) || null; }
+  catch(e) { syncConfig = null; }
+}
+function saveSyncConfig() {
+  if (syncConfig) localStorage.setItem(SYNC_KEY, JSON.stringify(syncConfig));
+  else localStorage.removeItem(SYNC_KEY);
+}
+
+function setSyncStatus(text, color) {
+  const s = document.getElementById('syncStatusText');
+  if (s) s.textContent = text;
+  const badge = document.getElementById('syncBadge');
+  if (badge) {
+    badge.textContent = syncConfig ? '☁ ' + text : '';
+    badge.style.color = color || (syncConfig ? '#6fa' : '#666');
+  }
+}
+
+async function gistApi(path, options = {}) {
+  if (!syncConfig) throw new Error('未接続');
+  const res = await fetch('https://api.github.com' + path, {
+    ...options,
+    headers: {
+      ...(options.headers || {}),
+      'Authorization': 'token ' + syncConfig.token,
+      'Accept': 'application/vnd.github+json'
+    }
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error('API ' + res.status + ': ' + body.slice(0, 120));
+  }
+  return res.json();
+}
+
+async function findOrCreateGist(token) {
+  // 自分のGist一覧から既存を探す
+  const listRes = await fetch('https://api.github.com/gists?per_page=100', {
+    headers: { 'Authorization': 'token ' + token, 'Accept': 'application/vnd.github+json' }
+  });
+  if (!listRes.ok) throw new Error('認証失敗 (status ' + listRes.status + ')');
+  const gists = await listRes.json();
+  const existing = gists.find(g => g.files && g.files[GIST_FILENAME]);
+  if (existing) return existing.id;
+  // 新規作成
+  const createRes = await fetch('https://api.github.com/gists', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'token ' + token,
+      'Accept': 'application/vnd.github+json',
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      description: '英検単語アプリのデータ',
+      public: false,
+      files: {
+        [GIST_FILENAME]: { content: JSON.stringify({ words: [], updatedAt: Date.now() }, null, 2) }
+      }
+    })
+  });
+  if (!createRes.ok) throw new Error('Gist作成失敗');
+  const created = await createRes.json();
+  return created.id;
+}
+
+async function pullFromGist(force = false) {
+  if (!syncConfig) return;
+  try {
+    setSyncStatus('取得中...');
+    const data = await gistApi('/gists/' + syncConfig.gistId);
+    const file = data.files && data.files[GIST_FILENAME];
+    if (!file || !file.content) { setSyncStatus('リモート空', '#fa6'); return; }
+    const parsed = JSON.parse(file.content);
+    if (!Array.isArray(parsed.words)) { setSyncStatus('フォーマット不正', '#f66'); return; }
+    const remoteAt = parsed.updatedAt || 0;
+    const localAt = parseInt(localStorage.getItem(UPDATED_KEY) || '0');
+    if (force || remoteAt > localAt) {
+      words = parsed.words.map(w => ({ id: w.id || uid(), en: String(w.en||''), ja: String(w.ja||'') })).filter(w => w.en && w.ja);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
+      localStorage.setItem(UPDATED_KEY, String(remoteAt || Date.now()));
+      if (index >= words.length) index = 0;
+      render();
+      setSyncStatus('取得完了: ' + words.length + '件 (' + new Date(remoteAt).toLocaleTimeString() + ')');
+    } else {
+      setSyncStatus('ローカルが最新 (' + new Date(localAt).toLocaleTimeString() + ')');
+    }
+  } catch (e) {
+    setSyncStatus('取得失敗: ' + e.message, '#f66');
+  }
+}
+
+async function pushToGist() {
+  if (!syncConfig) return;
+  try {
+    setSyncStatus('送信中...');
+    const updatedAt = Date.now();
+    const content = JSON.stringify({ words, updatedAt }, null, 2);
+    const res = await fetch('https://api.github.com/gists/' + syncConfig.gistId, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': 'token ' + syncConfig.token,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ files: { [GIST_FILENAME]: { content } } })
+    });
+    if (!res.ok) throw new Error('API ' + res.status);
+    localStorage.setItem(UPDATED_KEY, String(updatedAt));
+    setSyncStatus('同期済み ' + new Date(updatedAt).toLocaleTimeString());
+  } catch (e) {
+    setSyncStatus('送信失敗: ' + e.message, '#f66');
+  }
+}
+
+function schedulePush() {
+  if (!syncConfig) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(pushToGist, 2000);
+}
+
 function load() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
   catch(e) { return []; }
 }
-function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(words)); }
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
+  localStorage.setItem(UPDATED_KEY, String(Date.now()));
+  schedulePush();
+}
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
 function fitWordToWidth() {
@@ -322,6 +478,57 @@ document.getElementById('openCamera').addEventListener('click', () => { hideOver
 document.getElementById('openBulk').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); showOverlay('bulkOverlay'); });
 document.getElementById('openList').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); selectedIds = new Set(); renderList(); showOverlay('listOverlay'); });
 document.getElementById('openIO').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); document.getElementById('ioText').value = JSON.stringify(words, null, 2); showOverlay('ioOverlay'); });
+
+// 同期設定モーダル
+document.getElementById('openSync').addEventListener('click', () => {
+  hideOverlay(document.getElementById('menuOverlay'));
+  const tokenInput = document.getElementById('syncToken');
+  tokenInput.value = syncConfig ? syncConfig.token : '';
+  document.getElementById('syncDisconnect').style.display = syncConfig ? 'block' : 'none';
+  if (!syncConfig) setSyncStatus('未接続');
+  showOverlay('syncOverlay');
+});
+
+document.getElementById('syncConnect').addEventListener('click', async () => {
+  const token = document.getElementById('syncToken').value.trim();
+  if (!token) { alert('トークンを入力してください'); return; }
+  setSyncStatus('Gist検索中...');
+  try {
+    const gistId = await findOrCreateGist(token);
+    syncConfig = { token, gistId };
+    saveSyncConfig();
+    setSyncStatus('接続完了 (Gist: ' + gistId.slice(0, 8) + '...)');
+    document.getElementById('syncDisconnect').style.display = 'block';
+    await pullFromGist();
+    // もしリモートが空なら現在のローカルをpush
+    const remoteAt = parseInt(localStorage.getItem(UPDATED_KEY) || '0');
+    if (words.length && !remoteAt) await pushToGist();
+  } catch (e) {
+    setSyncStatus('接続失敗: ' + e.message, '#f66');
+    alert('接続失敗: ' + e.message);
+  }
+});
+
+document.getElementById('syncPullBtn').addEventListener('click', () => pullFromGist(true));
+document.getElementById('syncPushBtn').addEventListener('click', () => pushToGist());
+document.getElementById('syncDisconnect').addEventListener('click', () => {
+  if (!confirm('同期を切断しますか?\n(トークンと設定をこの端末から削除します)')) return;
+  syncConfig = null;
+  saveSyncConfig();
+  setSyncStatus('未接続');
+  document.getElementById('syncDisconnect').style.display = 'none';
+  document.getElementById('syncToken').value = '';
+});
+
+// 初期化: 同期設定を読み込み、接続済みなら pull
+loadSyncConfig();
+if (syncConfig) {
+  setSyncStatus('接続中...');
+  pullFromGist();
+}
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && syncConfig) pullFromGist();
+});
 
 // Add single
 document.getElementById('addSave').addEventListener('click', () => {
