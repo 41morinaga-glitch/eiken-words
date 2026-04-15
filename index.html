@@ -174,7 +174,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-121139';
+const APP_VERSION = '20260415-121935';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 let words = load();
@@ -403,41 +403,107 @@ function preprocessImage(file) {
   });
 }
 
-// 言語別OCR。行ごとのテキストとy座標を返す
+// 言語別OCR。行ごとのテキストとbboxを返す
 async function ocrLines(source, lang, onProgress) {
   const { data } = await Tesseract.recognize(source, lang, {
     logger: m => {
       if (m.status === 'recognizing text') onProgress(m.progress);
     },
-    tessedit_pageseg_mode: '6'
+    tessedit_pageseg_mode: '3'
   });
-  const lines = (data.lines || []).map(l => ({
-    text: (l.text || '').trim(),
-    y: l.bbox ? (l.bbox.y0 + l.bbox.y1) / 2 : 0,
-    h: l.bbox ? (l.bbox.y1 - l.bbox.y0) : 20
-  })).filter(l => l.text);
+  const lines = (data.lines || []).map(l => {
+    const b = l.bbox || { x0:0, y0:0, x1:0, y1:0 };
+    return {
+      text: (l.text || '').trim(),
+      y: (b.y0 + b.y1) / 2,
+      h: b.y1 - b.y0,
+      x0: b.x0, x1: b.x1
+    };
+  }).filter(l => l.text);
   return lines;
 }
 
-// 英語行と日本語行をY座標で突き合わせてペア化
+function hasJa(s) { return /[\u3040-\u30ff\u3400-\u9fff]/.test(s); }
+function hasEn(s) { return /[A-Za-z]/.test(s); }
+
+function isHeadwordCandidate(text) {
+  const t = text.trim();
+  if (!t || t.length > 25) return false;
+  if (/[▶★►]/.test(t)) return false;
+  if (/\d/.test(t)) return false;
+  if (/[\[\]【】()「」]/.test(t)) return false;
+  if (hasJa(t)) return false;
+  if (!/^[A-Za-z][A-Za-z'\- ]{1,24}$/.test(t)) return false;
+  return t.split(/\s+/).filter(Boolean).length <= 3;
+}
+
+function cleanJaLine(text) {
+  return text
+    .replace(/[A-Za-z0-9]/g, '')
+    .replace(/[\[\]【】]/g, '')
+    .replace(/\s+/g, '')
+    .trim();
+}
+
+function isMeaningCandidate(text) {
+  const cleaned = cleanJaLine(text);
+  if (!cleaned || cleaned.length < 2) return false;
+  if (/^[图形動副名代前接助感]+$/.test(cleaned)) return false;
+  return true;
+}
+
+// エントリ番号行 (0009 等) を検出
+function findEntryAnchors(enLines) {
+  const anchors = [];
+  for (const l of enLines) {
+    const m = l.text.match(/\b(\d{3,4})\b/);
+    if (m) anchors.push({ y: l.y, num: m[1] });
+  }
+  anchors.sort((a, b) => a.y - b.y);
+  const dedup = [];
+  for (const a of anchors) {
+    if (!dedup.length || Math.abs(a.y - dedup[dedup.length-1].y) > 15) dedup.push(a);
+  }
+  return dedup;
+}
+
+// エントリ番号アンカーで区切ってブロック単位でペア化
+function pairByBlocks(enLines, jaLines) {
+  const anchors = findEntryAnchors(enLines);
+  if (anchors.length < 2) return null;
+  const pairs = [];
+  for (let i = 0; i < anchors.length; i++) {
+    const top = anchors[i].y;
+    const bottom = i + 1 < anchors.length ? anchors[i+1].y : Infinity;
+    const enCands = enLines.filter(l => l.y > top && l.y < bottom && isHeadwordCandidate(l.text));
+    const jaCands = jaLines.filter(l => l.y > top && l.y < bottom && isMeaningCandidate(l.text));
+    if (!enCands.length || !jaCands.length) continue;
+    enCands.sort((a, b) => b.h - a.h); // 最も大きい(ヘッドワードは大字)
+    const en = enCands[0].text.trim();
+    jaCands.sort((a, b) => a.y - b.y); // 最も上(主要意味はブロック先頭)
+    const ja = cleanJaLine(jaCands[0].text);
+    if (en && ja) pairs.push({ en, ja });
+  }
+  return pairs.length ? pairs : null;
+}
+
+// フォールバック: Y座標の近さでペア化
 function pairLinesByY(enLines, jaLines) {
   const pairs = [];
   const usedJa = new Set();
-  // 英語のみ残す
   const cleanEn = enLines
     .map(l => ({ ...l, text: l.text.replace(/[^A-Za-z'\- ]/g, '').replace(/\s+/g, ' ').trim() }))
-    .filter(l => /[A-Za-z]/.test(l.text));
-  // 日本語のみ残す
+    .filter(l => hasEn(l.text));
   const cleanJa = jaLines
-    .map(l => ({ ...l, text: l.text.replace(/[A-Za-z0-9]/g, '').trim() }))
-    .filter(l => /[\u3040-\u30ff\u3400-\u9fff]/.test(l.text));
+    .map(l => ({ ...l, text: cleanJaLine(l.text) }))
+    .filter(l => hasJa(l.text));
 
   for (const en of cleanEn) {
     let best = -1, bestDist = Infinity;
     for (let i = 0; i < cleanJa.length; i++) {
       if (usedJa.has(i)) continue;
       const dist = Math.abs(cleanJa[i].y - en.y);
-      if (dist < bestDist && dist < en.h * 1.5) {
+      if (dist < bestDist && dist < (en.h || 20) * 2) {
         bestDist = dist; best = i;
       }
     }
@@ -471,7 +537,7 @@ document.getElementById('camInput').addEventListener('change', async (e) => {
       status.textContent = '日本語認識 ' + Math.round(p * 100) + '%';
     });
 
-    const pairs = pairLinesByY(enLines, jaLines);
+    const pairs = pairByBlocks(enLines, jaLines) || pairLinesByY(enLines, jaLines);
     const rawText = [
       '--- 英語 ---',
       enLines.map(l => l.text).join('\n'),
