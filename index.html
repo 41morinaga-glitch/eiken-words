@@ -26,7 +26,7 @@
   #card { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; }
   #card-inner { max-width: 100%; }
   #word { font-size: clamp(84px, 24vw, 168px); font-weight: 600; line-height: 1.3; transition: opacity 0.15s; white-space: nowrap; }
-  #word.ja { font-size: clamp(26px, 6.5vw, 48px); white-space: normal; word-break: break-word; line-height: 1.5; max-width: 92%; font-weight: 500; }
+  #word.ja { font-size: clamp(26px, 6.5vw, 48px); white-space: normal; word-break: keep-all; overflow-wrap: break-word; line-break: strict; line-height: 1.6; max-width: 92%; font-weight: 500; }
   #hint { position: absolute; bottom: 80px; left: 0; right: 0; text-align: center; color: #666; font-size: 14px; pointer-events: none; }
 
   #card { touch-action: none; }
@@ -202,7 +202,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-132530';
+const APP_VERSION = '20260415-132939';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -376,6 +376,16 @@ function save() {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
+// 日本語の自然な改行位置にゼロ幅スペース(U+200B)を挿入
+function addJaBreakOpportunities(s) {
+  if (!s) return s;
+  // 句読点・閉じ括弧の後ろに改行機会を追加
+  s = s.replace(/([、。，．,\.）\)〉》」』】〕])/g, '$1\u200B');
+  // 開き括弧の前にも改行機会
+  s = s.replace(/([（\(〈《「『【〔])/g, '\u200B$1');
+  return s;
+}
+
 function fitWordToWidth() {
   const wEl = document.getElementById('word');
   const card = document.getElementById('card');
@@ -406,7 +416,7 @@ function render() {
   if (index >= words.length) index = 0;
   if (index < 0) index = words.length - 1;
   const w = words[index];
-  wEl.textContent = showJa ? w.ja : w.en;
+  wEl.textContent = showJa ? addJaBreakOpportunities(w.ja) : w.en;
   wEl.className = showJa ? 'ja' : '';
   cEl.textContent = (index + 1) + ' / ' + words.length;
   hEl.textContent = showJa ? 'タップで英語' : 'タップで日本語';
