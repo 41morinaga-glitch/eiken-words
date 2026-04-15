@@ -26,7 +26,7 @@
   #card { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; }
   #card-inner { max-width: 100%; }
   #word { font-size: clamp(84px, 24vw, 168px); font-weight: 600; line-height: 1.3; transition: opacity 0.15s; white-space: nowrap; }
-  #word.ja { font-size: clamp(72px, 18vw, 132px); white-space: normal; word-break: break-word; }
+  #word.ja { font-size: clamp(26px, 6.5vw, 48px); white-space: normal; word-break: break-word; line-height: 1.5; max-width: 92%; font-weight: 500; }
   #hint { position: absolute; bottom: 80px; left: 0; right: 0; text-align: center; color: #666; font-size: 14px; pointer-events: none; }
 
   #card { touch-action: none; }
@@ -138,7 +138,9 @@
   <div class="body">
     <label>1行1ペア「=」「タブ」「コロン」区切り、または 教科書コピペ(エントリ番号付き)に対応</label>
     <textarea id="bulkText" placeholder="apple = りんご&#10;book = 本&#10;&#10;または教科書をそのまま貼り付け:&#10;0009&#10;produce [prədjúːs]&#10;（製品など）を作る&#10;..."></textarea>
-    <button class="btn" id="bulkSave">追加</button>
+    <button class="btn secondary" id="bulkPreview">プレビュー</button>
+    <div id="bulkPreviewBox" style="margin-top:14px;"></div>
+    <button class="btn" id="bulkSave" style="display:none;">この内容で追加</button>
   </div>
 </div>
 
@@ -174,7 +176,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-124316';
+const APP_VERSION = '20260415-125251';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 let words = load();
@@ -314,7 +316,7 @@ document.getElementById('menuBtn').addEventListener('click', () => showOverlay('
 document.getElementById('openAdd').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); document.getElementById('addEn').value=''; document.getElementById('addJa').value=''; showOverlay('addOverlay'); setTimeout(()=>document.getElementById('addEn').focus(), 100); });
 document.getElementById('openCamera').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); showOverlay('camOverlay'); });
 document.getElementById('openBulk').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); showOverlay('bulkOverlay'); });
-document.getElementById('openList').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); renderList(); showOverlay('listOverlay'); });
+document.getElementById('openList').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); selectedIds = new Set(); renderList(); showOverlay('listOverlay'); });
 document.getElementById('openIO').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); document.getElementById('ioText').value = JSON.stringify(words, null, 2); showOverlay('ioOverlay'); });
 
 // Add single
@@ -414,16 +416,53 @@ function parsePairs(text) {
   return out;
 }
 
-document.getElementById('bulkSave').addEventListener('click', () => {
+let bulkPairs = [];
+function renderBulkPreview() {
+  const box = document.getElementById('bulkPreviewBox');
+  const saveBtn = document.getElementById('bulkSave');
+  if (!bulkPairs.length) {
+    box.innerHTML = '<div style="color:#666;font-size:13px;">ペアが見つかりませんでした。</div>';
+    saveBtn.style.display = 'none';
+    return;
+  }
+  box.innerHTML = '<label>プレビュー(' + bulkPairs.length + '件) ※編集・削除可</label>';
+  bulkPairs.forEach((p, i) => {
+    const row = document.createElement('div');
+    row.className = 'pair-editor';
+    row.innerHTML = '<input type="text" lang="en" autocapitalize="off" autocorrect="off"><input type="text" lang="ja"><button>×</button>';
+    row.children[0].value = p.en;
+    row.children[1].value = p.ja;
+    row.children[0].addEventListener('input', e => bulkPairs[i].en = e.target.value);
+    row.children[1].addEventListener('input', e => bulkPairs[i].ja = e.target.value);
+    row.children[2].addEventListener('click', () => { bulkPairs.splice(i,1); renderBulkPreview(); });
+    box.appendChild(row);
+  });
+  saveBtn.style.display = 'block';
+}
+
+document.getElementById('bulkPreview').addEventListener('click', () => {
   const text = document.getElementById('bulkText').value;
-  const pairs = parsePairs(text);
-  if (!pairs.length) { alert('ペアが見つかりません'); return; }
-  pairs.forEach(p => words.push({ id: uid(), en: p.en, ja: p.ja }));
+  bulkPairs = parsePairs(text);
+  if (!bulkPairs || !bulkPairs.length) {
+    bulkPairs = [];
+    alert('ペアが見つかりません。区切り記号や形式を確認してください。');
+    return;
+  }
+  renderBulkPreview();
+});
+
+document.getElementById('bulkSave').addEventListener('click', () => {
+  const valid = bulkPairs.filter(p => p.en.trim() && p.ja.trim());
+  if (!valid.length) { alert('有効なペアがありません'); return; }
+  valid.forEach(p => words.push({ id: uid(), en: p.en.trim(), ja: p.ja.trim() }));
   save();
+  bulkPairs = [];
   document.getElementById('bulkText').value = '';
+  document.getElementById('bulkPreviewBox').innerHTML = '';
+  document.getElementById('bulkSave').style.display = 'none';
   hideOverlay(document.getElementById('bulkOverlay'));
   render();
-  alert(pairs.length + '件追加しました');
+  alert(valid.length + '件追加しました');
 });
 
 // OCR - 画像前処理 (拡大 + グレースケール + 軽いコントラスト強調、二値化は行わない)
@@ -693,29 +732,103 @@ document.getElementById('ocrSave').addEventListener('click', () => {
 });
 
 // List / Edit
+let selectedIds = new Set();
 function renderList() {
   const body = document.getElementById('listBody');
-  if (!words.length) { body.innerHTML = '<div style="color:#666;text-align:center;padding:40px;">単語がありません</div>'; return; }
   body.innerHTML = '';
+
+  // ツールバー (常に表示)
+  const toolbar = document.createElement('div');
+  toolbar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 0 12px;position:sticky;top:0;background:#000;z-index:2;border-bottom:1px solid #222;margin-bottom:10px;flex-wrap:wrap;';
+  toolbar.innerHTML = `
+    <label style="display:flex;align-items:center;gap:6px;margin:0;color:#ccc;font-size:13px;cursor:pointer;">
+      <input type="checkbox" id="selAll" style="width:18px;height:18px;">全選択
+    </label>
+    <span id="selCount" style="color:#888;font-size:12px;margin-left:4px;">0 / ${words.length}</span>
+    <span style="flex:1;"></span>
+    <button id="delSel" style="background:#422;border:none;color:#f88;padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;">選択削除</button>
+    <button id="delAll" style="background:#611;border:none;color:#fbb;padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;">全削除</button>
+  `;
+  body.appendChild(toolbar);
+
+  if (!words.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'color:#666;text-align:center;padding:40px;';
+    empty.textContent = '単語がありません';
+    body.appendChild(empty);
+    updateListToolbar();
+    bindListToolbar();
+    return;
+  }
+
   words.forEach((w, i) => {
     const item = document.createElement('div');
     item.className = 'list-item';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.style.cssText = 'width:20px;height:20px;margin-right:4px;flex-shrink:0;';
+    cb.checked = selectedIds.has(w.id);
+    cb.addEventListener('change', () => {
+      if (cb.checked) selectedIds.add(w.id); else selectedIds.delete(w.id);
+      updateListToolbar();
+    });
+
+    const num = document.createElement('div');
+    num.style.cssText = 'color:#666;font-size:12px;font-variant-numeric:tabular-nums;min-width:30px;text-align:right;flex-shrink:0;';
+    num.textContent = (i + 1);
+
     const text = document.createElement('div');
     text.className = 'text';
     const en = document.createElement('div'); en.className = 'en'; en.textContent = w.en;
     const ja = document.createElement('div'); ja.className = 'ja'; ja.textContent = w.ja;
     text.appendChild(en); text.appendChild(ja);
+
     const editBtn = document.createElement('button'); editBtn.textContent = '編集';
     editBtn.addEventListener('click', () => openEdit(w.id));
     const delBtn = document.createElement('button'); delBtn.textContent = '削除'; delBtn.className = 'del';
     delBtn.addEventListener('click', () => {
-      if (!confirm('削除しますか?')) return;
+      if (!confirm('この単語を削除しますか?')) return;
       words = words.filter(x => x.id !== w.id);
+      selectedIds.delete(w.id);
       save(); renderList(); render();
     });
-    item.appendChild(text); item.appendChild(editBtn); item.appendChild(delBtn);
+    item.appendChild(cb); item.appendChild(num); item.appendChild(text); item.appendChild(editBtn); item.appendChild(delBtn);
     body.appendChild(item);
   });
+  updateListToolbar();
+  bindListToolbar();
+}
+
+function updateListToolbar() {
+  const cnt = document.getElementById('selCount');
+  if (cnt) cnt.textContent = selectedIds.size + ' / ' + words.length;
+  const selAll = document.getElementById('selAll');
+  if (selAll) selAll.checked = words.length > 0 && selectedIds.size === words.length;
+}
+
+function bindListToolbar() {
+  const selAll = document.getElementById('selAll');
+  selAll.onclick = () => {
+    if (selAll.checked) words.forEach(w => selectedIds.add(w.id));
+    else selectedIds.clear();
+    renderList();
+  };
+  document.getElementById('delSel').onclick = () => {
+    if (!selectedIds.size) { alert('選択されていません'); return; }
+    if (!confirm(selectedIds.size + '件を削除しますか?')) return;
+    words = words.filter(w => !selectedIds.has(w.id));
+    selectedIds.clear();
+    save(); renderList(); render();
+  };
+  document.getElementById('delAll').onclick = () => {
+    if (!words.length) return;
+    if (!confirm('全' + words.length + '件を削除しますか?\n(元に戻せません)')) return;
+    if (!confirm('本当に全て削除しますか?')) return;
+    words = [];
+    selectedIds.clear();
+    save(); renderList(); render();
+  };
 }
 
 function openEdit(id) {
