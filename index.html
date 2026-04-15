@@ -226,7 +226,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-142129';
+const APP_VERSION = '20260415-144401';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -527,44 +527,65 @@ function next() { if (!activeWords.length || !canNav()) return; index = (index +
 function prev() { if (!activeWords.length || !canNav()) return; index = (index - 1 + activeWords.length) % activeWords.length; showJa = false; render(); speakCurrent(); }
 function flip() { if (!activeWords.length) return; showJa = !showJa; render(); speakCurrent(); }
 
-// タップで反転、上スワイプ(orホイール上)で次、下スワイプ(orホイール下)で前
+// タップで反転、スワイプで前後/覚えた
 (function() {
   const card = document.getElementById('card');
-  let startX = 0, startY = 0, pid = null;
-  const SWIPE = 40;
+  let startX = 0, startY = 0, down = false;
+  let touchSeenAt = 0;
+  const SWIPE = 30;
   const TAP_MOVE = 10;
 
-  card.addEventListener('pointerdown', e => {
-    if (pid !== null) return;
-    pid = e.pointerId;
-    startX = e.clientX;
-    startY = e.clientY;
-    // PC: ドラッグ中のテキスト選択やドラッグ&ドロップを防止
-    if (card.setPointerCapture) { try { card.setPointerCapture(e.pointerId); } catch(_){} }
-    e.preventDefault();
-  });
+  function onStart(x, y) {
+    down = true;
+    startX = x;
+    startY = y;
+  }
 
-  card.addEventListener('pointerup', e => {
-    if (e.pointerId !== pid) return;
-    pid = null;
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
+  function onEnd(x, y) {
+    if (!down) return;
+    down = false;
+    const dx = x - startX;
+    const dy = y - startY;
     const adx = Math.abs(dx), ady = Math.abs(dy);
-    // 覚えた直後: 任意の操作で次の単語へ進む
-    if (pendingAdvance) {
-      advanceAfterLearned();
-      return;
-    }
-    if (adx > SWIPE && adx > ady) {
+    if (pendingAdvance) { advanceAfterLearned(); return; }
+    if (adx > SWIPE && adx >= ady) {
       if (dx > 0) markLearned();
+      // 左スワイプは未割当
     } else if (ady > SWIPE && ady > adx) {
       if (dy < 0) next(); else prev();
     } else if (adx < TAP_MOVE && ady < TAP_MOVE) {
       flip();
     }
-  });
+  }
 
-  card.addEventListener('pointercancel', () => { pid = null; });
+  // Touch events (iOS)
+  card.addEventListener('touchstart', e => {
+    touchSeenAt = Date.now();
+    if (e.touches.length !== 1) { down = false; return; }
+    const t = e.touches[0];
+    onStart(t.clientX, t.clientY);
+  }, { passive: true });
+
+  card.addEventListener('touchend', e => {
+    touchSeenAt = Date.now();
+    if (!down) return;
+    const t = e.changedTouches[0];
+    onEnd(t.clientX, t.clientY);
+  }, { passive: true });
+
+  card.addEventListener('touchcancel', () => { down = false; }, { passive: true });
+
+  // Mouse events (PC) - ただしタッチ直後500msは無視(重複発火防止)
+  card.addEventListener('mousedown', e => {
+    if (Date.now() - touchSeenAt < 500) return;
+    onStart(e.clientX, e.clientY);
+    e.preventDefault();
+  });
+  card.addEventListener('mouseup', e => {
+    if (Date.now() - touchSeenAt < 500) return;
+    onEnd(e.clientX, e.clientY);
+  });
+  card.addEventListener('mouseleave', () => { down = false; });
 
   // PC: マウスホイールで次/前
   let wheelCooldown = 0;
