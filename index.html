@@ -97,6 +97,7 @@
     <button class="menu-item" id="openBulk">📝 まとめて入力<small>「英語 = 日本語」を改行区切りで貼り付け</small></button>
     <button class="menu-item" id="openList">📋 一覧・編集<small>追加した単語の編集・削除</small></button>
     <button class="menu-item" id="openSync">☁️ 同期設定<small>GitHub Gist経由で複数端末と自動同期</small></button>
+    <button class="menu-item" id="openBackup">🗄 バックアップ/復元<small>自動保存された履歴から単語を復元</small></button>
     <button class="menu-item" id="openIO">💾 エクスポート / インポート<small>JSONでバックアップ・復元</small></button>
   </div>
 </div>
@@ -189,6 +190,18 @@
   </div>
 </div>
 
+<!-- Backup -->
+<div class="overlay" id="backupOverlay">
+  <header><h2>バックアップ/復元</h2><button data-close>閉じる</button></header>
+  <div class="body">
+    <div style="color:#888;font-size:12px;margin-bottom:10px;">
+      単語を変更すると自動的にスナップショットが保存されます(最大20世代)。
+    </div>
+    <button class="btn" id="backupNow">今すぐバックアップ</button>
+    <div id="backupList" style="margin-top:14px;"></div>
+  </div>
+</div>
+
 <!-- IO -->
 <div class="overlay" id="ioOverlay">
   <header><h2>エクスポート / インポート</h2><button data-close>閉じる</button></header>
@@ -202,11 +215,13 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-134530';
+const APP_VERSION = '20260415-135044';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
 const UPDATED_KEY = 'eiken_updated_v1';
+const BACKUP_KEY = 'eiken_backups_v1';
+const MAX_BACKUPS = 20;
 const GIST_FILENAME = 'eiken-words.json';
 let words = load();
 let index = 0;
@@ -372,7 +387,54 @@ function load() {
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
   localStorage.setItem(UPDATED_KEY, String(Date.now()));
+  addBackup();
   schedulePush();
+}
+
+// 自動バックアップ: 内容に変更があれば1世代追加、最大MAX_BACKUPS件
+function addBackup() {
+  try {
+    const data = JSON.stringify(words);
+    const existing = JSON.parse(localStorage.getItem(BACKUP_KEY) || '[]');
+    if (existing.length && existing[existing.length - 1].data === data) return;
+    existing.push({ ts: Date.now(), count: words.length, data });
+    while (existing.length > MAX_BACKUPS) existing.shift();
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(existing));
+  } catch (e) {}
+}
+
+function loadBackups() {
+  try { return JSON.parse(localStorage.getItem(BACKUP_KEY) || '[]'); }
+  catch (e) { return []; }
+}
+
+function restoreBackup(ts) {
+  const backups = loadBackups();
+  const b = backups.find(x => x.ts === ts);
+  if (!b) return false;
+  try {
+    const data = JSON.parse(b.data);
+    if (!Array.isArray(data)) return false;
+    // 復元前の現在状態を保険としてバックアップ
+    const curData = JSON.stringify(words);
+    if (backups.length === 0 || backups[backups.length - 1].data !== curData) {
+      backups.push({ ts: Date.now(), count: words.length, data: curData });
+      while (backups.length > MAX_BACKUPS) backups.shift();
+      localStorage.setItem(BACKUP_KEY, JSON.stringify(backups));
+    }
+    words = data;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(words));
+    localStorage.setItem(UPDATED_KEY, String(Date.now()));
+    schedulePush();
+    index = 0;
+    render();
+    return true;
+  } catch (e) { return false; }
+}
+
+function deleteBackup(ts) {
+  const backups = loadBackups().filter(b => b.ts !== ts);
+  localStorage.setItem(BACKUP_KEY, JSON.stringify(backups));
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
@@ -526,6 +588,63 @@ document.getElementById('openCamera').addEventListener('click', () => { hideOver
 document.getElementById('openBulk').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); showOverlay('bulkOverlay'); });
 document.getElementById('openList').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); selectedIds = new Set(); renderList(); showOverlay('listOverlay'); });
 document.getElementById('openIO').addEventListener('click', () => { hideOverlay(document.getElementById('menuOverlay')); document.getElementById('ioText').value = JSON.stringify(words, null, 2); showOverlay('ioOverlay'); });
+
+// バックアップ/復元
+document.getElementById('openBackup').addEventListener('click', () => {
+  hideOverlay(document.getElementById('menuOverlay'));
+  renderBackupList();
+  showOverlay('backupOverlay');
+});
+
+document.getElementById('backupNow').addEventListener('click', () => {
+  // 最終バックアップと同一でも強制的に追加する
+  try {
+    const data = JSON.stringify(words);
+    const existing = loadBackups();
+    existing.push({ ts: Date.now(), count: words.length, data });
+    while (existing.length > MAX_BACKUPS) existing.shift();
+    localStorage.setItem(BACKUP_KEY, JSON.stringify(existing));
+    renderBackupList();
+  } catch(e) { alert('失敗: ' + e.message); }
+});
+
+function renderBackupList() {
+  const box = document.getElementById('backupList');
+  const backups = loadBackups().slice().reverse(); // 新しい順
+  if (!backups.length) {
+    box.innerHTML = '<div style="color:#666;text-align:center;padding:20px;font-size:13px;">バックアップはまだありません</div>';
+    return;
+  }
+  box.innerHTML = '<label>履歴 (' + backups.length + '/' + MAX_BACKUPS + ')</label>';
+  backups.forEach(b => {
+    const row = document.createElement('div');
+    row.className = 'list-item';
+    const d = new Date(b.ts);
+    const label = document.createElement('div');
+    label.className = 'text';
+    label.innerHTML = '<div class="en" style="color:#fff;">' + b.count + ' 件</div><div class="ja">' + d.toLocaleString('ja-JP') + '</div>';
+    const restoreBtn = document.createElement('button');
+    restoreBtn.textContent = '復元';
+    restoreBtn.addEventListener('click', () => {
+      if (!confirm(d.toLocaleString('ja-JP') + ' の時点の ' + b.count + '件 に復元しますか?\n現在の単語は上書きされます(この復元自体もバックアップされます)。')) return;
+      if (restoreBackup(b.ts)) {
+        alert('復元しました');
+        renderBackupList();
+      } else {
+        alert('復元に失敗しました');
+      }
+    });
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '削除'; delBtn.className = 'del';
+    delBtn.addEventListener('click', () => {
+      if (!confirm('このバックアップを削除しますか?')) return;
+      deleteBackup(b.ts);
+      renderBackupList();
+    });
+    row.appendChild(label); row.appendChild(restoreBtn); row.appendChild(delBtn);
+    box.appendChild(row);
+  });
+}
 
 // 同期設定モーダル
 document.getElementById('openSync').addEventListener('click', () => {
