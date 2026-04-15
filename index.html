@@ -22,8 +22,6 @@
   #speakBtn { position: fixed; left: calc(16px + env(safe-area-inset-left)); bottom: calc(20px + env(safe-area-inset-bottom)); width: 56px; height: 56px; border-radius: 50%; background: #222; border: 1px solid #333; color: #fff; font-size: 22px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 50; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
   #speakBtn:active { background: #333; }
   #speakBtn.off { color: #666; }
-  #learnedBtn { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(22px + env(safe-area-inset-bottom)); padding: 14px 22px; border-radius: 30px; background: linear-gradient(135deg, #2d6a4f, #1b4332); border: 1px solid #52b788; color: #fff; font-size: 15px; font-weight: 600; display: none; align-items: center; justify-content: center; cursor: pointer; z-index: 50; box-shadow: 0 4px 16px rgba(82,183,136,0.3); gap: 6px; }
-  #learnedBtn:active { transform: translateX(-50%) scale(0.95); }
   #toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8); background: rgba(0,0,0,0.9); border: 2px solid #52b788; color: #fff; padding: 24px 36px; border-radius: 16px; font-size: 24px; font-weight: 700; z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s; box-shadow: 0 10px 40px rgba(82,183,136,0.5); text-align: center; }
   #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
 
@@ -84,11 +82,10 @@
 
 <div id="card">
   <div id="word" class="ja">単語がありません</div>
-  <div id="hint">タップ/クリック:反転 ・ 上:次 ・ 下:前 (スワイプ/ホイール/矢印)</div>
+  <div id="hint">タップ:反転 ・ ↑:次 ・ ↓:前 ・ →:覚えた</div>
 </div>
 
 <button id="speakBtn" aria-label="読み上げ">🔊</button>
-<button id="learnedBtn" aria-label="覚えた">✓ 覚えた</button>
 <button id="menuBtn" aria-label="メニュー">☰</button>
 <div id="toast"></div>
 
@@ -229,7 +226,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-140944';
+const APP_VERSION = '20260415-141421';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -490,7 +487,6 @@ function render() {
   const wEl = document.getElementById('word');
   const cEl = document.getElementById('counter');
   const hEl = document.getElementById('hint');
-  const learnedBtn = document.getElementById('learnedBtn');
   if (activeWords.length === 0) {
     if (words.length === 0) {
       wEl.textContent = '単語がありません';
@@ -499,9 +495,8 @@ function render() {
     }
     wEl.className = 'ja';
     cEl.textContent = '0 / 0';
-    hEl.textContent = words.length === 0 ? 'タップ:反転 ・ ↑:次 ・ ↓:前' : '✨ おめでとうございます ✨';
+    hEl.textContent = words.length === 0 ? '上下:前後 ・ タップ:反転' : '✨ おめでとうございます ✨';
     wEl.style.fontSize = '';
-    if (learnedBtn) learnedBtn.style.display = 'none';
     return;
   }
   if (index >= activeWords.length) index = 0;
@@ -510,8 +505,7 @@ function render() {
   if (showJa) { wEl.innerHTML = formatJa(w.ja); } else { wEl.textContent = w.en; }
   wEl.className = showJa ? 'ja' : '';
   cEl.textContent = (index + 1) + ' / ' + activeWords.length;
-  hEl.textContent = showJa ? 'タップで英語' : 'タップで日本語';
-  if (learnedBtn) learnedBtn.style.display = 'flex';
+  hEl.textContent = showJa ? 'タップで英語' : '→スワイプ:覚えた';
   requestAnimationFrame(fitWordToWidth);
 }
 
@@ -556,7 +550,10 @@ function flip() { if (!activeWords.length) return; showJa = !showJa; render(); s
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
     const adx = Math.abs(dx), ady = Math.abs(dy);
-    if (ady > SWIPE && ady > adx) {
+    if (adx > SWIPE && adx > ady) {
+      // 横スワイプ: 右 = 覚えた / 左 = 何もしない(将来用)
+      if (dx > 0) markLearned();
+    } else if (ady > SWIPE && ady > adx) {
       if (dy < 0) next(); else prev();
     } else if (adx < TAP_MOVE && ady < TAP_MOVE) {
       flip();
@@ -619,21 +616,19 @@ function showToast(text) {
   showToast._t = setTimeout(() => el.classList.remove('show'), 1400);
 }
 
-document.getElementById('learnedBtn').addEventListener('click', () => {
-  if (!activeWords.length) return;
+function markLearned() {
+  if (!activeWords.length || !canNav()) return;
   const current = activeWords[index];
-  // words配列内の該当単語を更新
   const target = words.find(w => w.id === current.id);
   if (!target) return;
   target.learned = true;
   target.learnedAt = Date.now();
   save();
   showToast(PRAISES[Math.floor(Math.random() * PRAISES.length)]);
-  // 次の未学習単語を表示。index はそのままで refreshActive 後に同じ位置の次を指す
   showJa = false;
   render();
   speakCurrent();
-});
+}
 
 document.getElementById('shuffleBtn').addEventListener('click', () => {
   if (words.length < 2) return;
@@ -1566,13 +1561,14 @@ document.addEventListener('touchend', e => {
   lastTouch = now;
 }, { passive: false });
 
-// Keyboard: Space/Enter=反転, ↑=次, ↓=前
+// Keyboard: Space=反転, ↑=次, ↓=前, →=覚えた
 document.addEventListener('keydown', e => {
   if (document.querySelector('.overlay.show')) return;
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); }
-  else if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); next(); }
-  else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); prev(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); next(); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); prev(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); markLearned(); }
 });
 
 render();
