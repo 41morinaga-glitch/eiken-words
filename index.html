@@ -24,6 +24,9 @@
   #speakBtn.off { color: #666; }
   #toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.8); background: rgba(0,0,0,0.9); border: 2px solid #52b788; color: #fff; padding: 22px 28px; border-radius: 16px; font-size: clamp(18px, 5vw, 26px); font-weight: 700; z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s; box-shadow: 0 10px 40px rgba(82,183,136,0.5); text-align: center; white-space: nowrap; max-width: 92vw; }
   #toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #toast.milestone { background: linear-gradient(135deg, #b8860b, #daa520); border-color: #ffd700; box-shadow: 0 10px 50px rgba(255,215,0,0.6); font-size: clamp(20px, 6vw, 30px); }
+  #toast.milestone.show { animation: milestonePulse 0.6s ease-out; }
+  @keyframes milestonePulse { 0% { transform: translate(-50%, -50%) scale(0.5); } 50% { transform: translate(-50%, -50%) scale(1.15); } 100% { transform: translate(-50%, -50%) scale(1); } }
 
   #card { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; padding: 20px; text-align: center; }
   #card-inner { max-width: 100%; }
@@ -226,7 +229,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-150901';
+const APP_VERSION = '20260415-151326';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -656,12 +659,29 @@ const PRAISES = [
   'お見事！ 🏆'
 ];
 
-function showToast(text) {
+function showToast(text, opts = {}) {
   const el = document.getElementById('toast');
   el.textContent = text;
   el.classList.add('show');
+  el.classList.toggle('milestone', !!opts.milestone);
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(() => el.classList.remove('show'), 1400);
+  const dur = opts.duration || 1400;
+  showToast._t = setTimeout(() => el.classList.remove('show'), dur);
+}
+
+function checkMilestone() {
+  const learned = words.filter(w => w.learned);
+  const total = learned.length;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayTs = today.getTime();
+  const todayCount = learned.filter(w => (w.learnedAt || 0) >= todayTs).length;
+  if (todayCount === 10) return '🔥 今日10個達成！ すごい集中力！';
+  if (todayCount === 30) return '⚡ 今日30個クリア！ 神がかってる！';
+  if (total === 50) return '🎯 累計50個達成！ 順調！';
+  if (total === 100) return '💯 累計100個達成！ 素晴らしい！';
+  if (total === 200) return '🏆 累計200個達成！ マスター級！';
+  if (total >= 300 && total % 100 === 0) return '🌟 累計' + total + '個達成！ 止まらない！';
+  return null;
 }
 
 let pendingAdvance = false;
@@ -674,7 +694,12 @@ function markLearned() {
   target.learned = true;
   target.learnedAt = Date.now();
   save();
-  showToast(PRAISES[Math.floor(Math.random() * PRAISES.length)]);
+  const milestone = checkMilestone();
+  if (milestone) {
+    showToast(milestone, { milestone: true, duration: 2600 });
+  } else {
+    showToast(PRAISES[Math.floor(Math.random() * PRAISES.length)]);
+  }
   pendingAdvance = true;
   const hEl = document.getElementById('hint');
   hEl.innerHTML = '👆 タップで次の単語へ';
