@@ -229,7 +229,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-151326';
+const APP_VERSION = '20260415-151739';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -251,14 +251,47 @@ function refreshActive() {
   if (index < 0) index = 0;
 }
 
+// 自然な英語音声を優先選択
+let bestVoice = null;
+function pickBestVoice() {
+  if (!('speechSynthesis' in window)) return null;
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return null;
+  const en = voices.filter(v => /^en(-|_|$)/i.test(v.lang));
+  if (!en.length) return null;
+  // iPhone/Macの高品質 Apple 音声を最優先
+  const prefer = [
+    /Samantha/i, /Ava/i, /Allison/i, /Nicky/i, /Karen/i, /Alex/i,
+    /Siri/i, /Enhanced/i, /Premium/i, /Neural/i,
+    /Google US English/i, /Google UK English Female/i,
+    /Microsoft Aria/i, /Microsoft Jenny/i, /Microsoft Zira/i
+  ];
+  for (const re of prefer) {
+    const hit = en.find(v => re.test(v.name));
+    if (hit) return hit;
+  }
+  const us = en.find(v => /en-US/i.test(v.lang));
+  return us || en[0];
+}
+
+if ('speechSynthesis' in window) {
+  bestVoice = pickBestVoice();
+  window.speechSynthesis.addEventListener('voiceschanged', () => {
+    bestVoice = pickBestVoice();
+  });
+}
+
 function speak(text) {
   if (!speakEnabled || !text) return;
   if (!('speechSynthesis' in window)) return;
   try {
     window.speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'en-US';
-    u.rate = 0.9;
+    if (!bestVoice) bestVoice = pickBestVoice();
+    if (bestVoice) { u.voice = bestVoice; u.lang = bestVoice.lang; }
+    else u.lang = 'en-US';
+    u.rate = 0.95;
+    u.pitch = 1.0;
     window.speechSynthesis.speak(u);
   } catch (e) {}
 }
