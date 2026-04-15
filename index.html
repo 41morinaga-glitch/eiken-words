@@ -226,7 +226,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-150503';
+const APP_VERSION = '20260415-150901';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -757,11 +757,21 @@ document.getElementById('openLearned').addEventListener('click', () => {
 });
 
 let learnedSelected = new Set();
+let calMonth = null; // 表示中の月の1日 Date
+let calSelectedKey = null; // 選択中の日 (yyyy-mm-dd 形式)
+
+function dayKey(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
 
 function renderLearnedPage() {
   const body = document.getElementById('learnedBody');
   body.innerHTML = '';
   const learned = words.filter(w => w.learned);
+
   // サマリカード
   const today = new Date(); today.setHours(0,0,0,0);
   const todayTs = today.getTime();
@@ -771,82 +781,169 @@ function renderLearnedPage() {
   const summary = document.createElement('div');
   summary.style.cssText = 'display:flex;gap:8px;margin-bottom:14px;';
   summary.innerHTML = `
-    <div style="flex:1;background:#1b4332;border:1px solid #52b788;border-radius:10px;padding:14px;text-align:center;">
+    <div style="flex:1;background:#1b4332;border:1px solid #52b788;border-radius:10px;padding:12px;text-align:center;">
       <div style="color:#95d5b2;font-size:11px;">合計</div>
-      <div style="color:#fff;font-size:26px;font-weight:700;">${learned.length}</div>
+      <div style="color:#fff;font-size:22px;font-weight:700;">${learned.length}</div>
     </div>
-    <div style="flex:1;background:#111;border:1px solid #333;border-radius:10px;padding:14px;text-align:center;">
+    <div style="flex:1;background:#111;border:1px solid #333;border-radius:10px;padding:12px;text-align:center;">
       <div style="color:#888;font-size:11px;">今日</div>
-      <div style="color:#fff;font-size:26px;font-weight:700;">${todayCount}</div>
+      <div style="color:#fff;font-size:22px;font-weight:700;">${todayCount}</div>
     </div>
-    <div style="flex:1;background:#111;border:1px solid #333;border-radius:10px;padding:14px;text-align:center;">
+    <div style="flex:1;background:#111;border:1px solid #333;border-radius:10px;padding:12px;text-align:center;">
       <div style="color:#888;font-size:11px;">7日間</div>
-      <div style="color:#fff;font-size:26px;font-weight:700;">${weekCount}</div>
+      <div style="color:#fff;font-size:22px;font-weight:700;">${weekCount}</div>
     </div>
   `;
   body.appendChild(summary);
 
-  if (!learned.length) {
-    const empty = document.createElement('div');
-    empty.style.cssText = 'color:#666;text-align:center;padding:30px;font-size:13px;';
-    empty.textContent = 'まだ覚えた単語がありません';
-    body.appendChild(empty);
-    return;
+  // カレンダー初期月
+  if (!calMonth) {
+    calMonth = new Date(today.getFullYear(), today.getMonth(), 1);
   }
 
-  // ツールバー (sticky)
-  const toolbar = document.createElement('div');
-  toolbar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:8px 0;position:sticky;top:0;background:#000;z-index:2;border-bottom:1px solid #222;margin-bottom:10px;flex-wrap:wrap;';
-  toolbar.innerHTML = `
-    <label style="display:flex;align-items:center;gap:6px;margin:0;color:#ccc;font-size:13px;cursor:pointer;">
-      <input type="checkbox" id="learnedSelAll" style="width:18px;height:18px;">全選択
-    </label>
-    <span id="learnedSelCount" style="color:#888;font-size:12px;margin-left:4px;">0 / ${learned.length}</span>
-    <span style="flex:1;"></span>
-    <button id="learnedUnlearnSel" style="background:#1b4332;border:1px solid #52b788;color:#95d5b2;padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;">選択を戻す</button>
-    <button id="learnedUnlearnAll" style="background:#611;border:none;color:#fbb;padding:8px 12px;border-radius:6px;font-size:13px;cursor:pointer;">全て戻す</button>
+  // 日付別カウントマップ
+  const dayCounts = new Map();
+  const dayWords = new Map();
+  for (const w of learned) {
+    if (!w.learnedAt) continue;
+    const d = new Date(w.learnedAt);
+    const k = dayKey(d);
+    dayCounts.set(k, (dayCounts.get(k) || 0) + 1);
+    if (!dayWords.has(k)) dayWords.set(k, []);
+    dayWords.get(k).push(w);
+  }
+
+  // カレンダーヘッダ
+  const calHead = document.createElement('div');
+  calHead.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:8px;';
+  calHead.innerHTML = `
+    <button id="calPrev" style="background:#222;border:1px solid #333;color:#fff;width:36px;height:36px;border-radius:8px;cursor:pointer;font-size:16px;">◀</button>
+    <div id="calTitle" style="flex:1;text-align:center;color:#fff;font-size:16px;font-weight:600;">${calMonth.getFullYear()}年 ${calMonth.getMonth()+1}月</div>
+    <button id="calNext" style="background:#222;border:1px solid #333;color:#fff;width:36px;height:36px;border-radius:8px;cursor:pointer;font-size:16px;">▶</button>
+    <button id="calToday" style="background:#1b4332;border:1px solid #52b788;color:#95d5b2;padding:0 12px;height:36px;border-radius:8px;cursor:pointer;font-size:13px;">今日</button>
   `;
-  body.appendChild(toolbar);
+  body.appendChild(calHead);
 
-  // 日付でグループ化(降順)
-  const groups = new Map();
-  learned.forEach(w => {
-    const ts = w.learnedAt || 0;
-    const d = new Date(ts); d.setHours(0,0,0,0);
-    const key = d.getTime();
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(w);
+  // 曜日ヘッダ
+  const dowRow = document.createElement('div');
+  dowRow.style.cssText = 'display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px;';
+  ['日','月','火','水','木','金','土'].forEach((d, i) => {
+    const c = document.createElement('div');
+    c.textContent = d;
+    c.style.cssText = 'text-align:center;color:' + (i === 0 ? '#f88' : i === 6 ? '#8af' : '#888') + ';font-size:11px;padding:4px 0;';
+    dowRow.appendChild(c);
   });
-  const sortedKeys = [...groups.keys()].sort((a, b) => b - a);
+  body.appendChild(dowRow);
 
-  for (const key of sortedKeys) {
-    const dateLabel = document.createElement('div');
-    dateLabel.style.cssText = 'color:#95d5b2;font-size:13px;font-weight:600;margin:14px 0 6px;padding:0 4px;';
-    const d = new Date(key);
-    const dateStr = key === 0 ? '日付不明' : d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
-    const list = groups.get(key);
-    dateLabel.textContent = dateStr + '  (' + list.length + '件)';
-    body.appendChild(dateLabel);
+  // カレンダーグリッド
+  const grid = document.createElement('div');
+  grid.style.cssText = 'display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:14px;';
+
+  const firstDay = new Date(calMonth.getFullYear(), calMonth.getMonth(), 1);
+  const startOffset = firstDay.getDay();
+  const daysInMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 0).getDate();
+  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+  for (let i = 0; i < totalCells; i++) {
+    const cell = document.createElement('div');
+    const dayNum = i - startOffset + 1;
+    const inMonth = dayNum >= 1 && dayNum <= daysInMonth;
+    cell.style.cssText = 'aspect-ratio:1;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:12px;cursor:' + (inMonth ? 'pointer' : 'default') + ';position:relative;' + (inMonth ? 'background:#111;border:1px solid #222;' : '');
+    if (!inMonth) { grid.appendChild(cell); continue; }
+
+    const cellDate = new Date(calMonth.getFullYear(), calMonth.getMonth(), dayNum);
+    const k = dayKey(cellDate);
+    const count = dayCounts.get(k) || 0;
+    const isToday = k === dayKey(today);
+    const isSelected = k === calSelectedKey;
+
+    const num = document.createElement('div');
+    num.textContent = dayNum;
+    num.style.cssText = 'color:#ccc;font-size:12px;';
+    cell.appendChild(num);
+
+    if (count > 0) {
+      const badge = document.createElement('div');
+      badge.textContent = count;
+      badge.style.cssText = 'color:#fff;font-size:13px;font-weight:700;margin-top:2px;';
+      cell.appendChild(badge);
+      // ヒートマップ色
+      const intensity = Math.min(1, count / 15);
+      cell.style.background = 'rgba(82,183,136,' + (0.25 + intensity * 0.65) + ')';
+      cell.style.borderColor = '#52b788';
+    }
+    if (isToday) {
+      cell.style.outline = '2px solid #4ea1ff';
+      cell.style.outlineOffset = '-2px';
+    }
+    if (isSelected) {
+      cell.style.outline = '2px solid #fff';
+      cell.style.outlineOffset = '-2px';
+    }
+
+    cell.addEventListener('click', () => {
+      calSelectedKey = (calSelectedKey === k) ? null : k;
+      renderLearnedPage();
+    });
+    grid.appendChild(cell);
+  }
+  body.appendChild(grid);
+
+  // イベントバインド
+  document.getElementById('calPrev').onclick = () => {
+    calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() - 1, 1);
+    calSelectedKey = null;
+    renderLearnedPage();
+  };
+  document.getElementById('calNext').onclick = () => {
+    calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 1);
+    calSelectedKey = null;
+    renderLearnedPage();
+  };
+  document.getElementById('calToday').onclick = () => {
+    calMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    calSelectedKey = dayKey(today);
+    renderLearnedPage();
+  };
+
+  // 選択日の単語リスト
+  if (calSelectedKey && dayWords.has(calSelectedKey)) {
+    const selDate = calSelectedKey.split('-');
+    const dayLabel = document.createElement('div');
+    dayLabel.style.cssText = 'color:#95d5b2;font-size:14px;font-weight:600;margin:4px 0 8px;padding:0 4px;';
+    const list = dayWords.get(calSelectedKey);
+    dayLabel.textContent = parseInt(selDate[0]) + '年' + parseInt(selDate[1]) + '月' + parseInt(selDate[2]) + '日 (' + list.length + '件)';
+    body.appendChild(dayLabel);
+
+    // ツールバー
+    const toolbar = document.createElement('div');
+    toolbar.style.cssText = 'display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #222;margin-bottom:8px;flex-wrap:wrap;';
+    toolbar.innerHTML = `
+      <label style="display:flex;align-items:center;gap:6px;margin:0;color:#ccc;font-size:12px;cursor:pointer;">
+        <input type="checkbox" id="learnedSelAll" style="width:18px;height:18px;">この日の全選択
+      </label>
+      <span id="learnedSelCount" style="color:#888;font-size:12px;margin-left:4px;"></span>
+      <span style="flex:1;"></span>
+      <button id="learnedUnlearnSel" style="background:#1b4332;border:1px solid #52b788;color:#95d5b2;padding:6px 10px;border-radius:6px;font-size:12px;cursor:pointer;">選択を戻す</button>
+    `;
+    body.appendChild(toolbar);
 
     list.forEach(w => {
       const item = document.createElement('div');
       item.className = 'list-item';
-
       const cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.style.cssText = 'width:20px;height:20px;margin-right:4px;flex-shrink:0;';
       cb.checked = learnedSelected.has(w.id);
       cb.addEventListener('change', () => {
         if (cb.checked) learnedSelected.add(w.id); else learnedSelected.delete(w.id);
-        updateLearnedToolbar(learned.length);
+        updateLearnedToolbar(list.length);
       });
-
       const text = document.createElement('div');
       text.className = 'text';
       const en = document.createElement('div'); en.className = 'en'; en.textContent = w.en;
       const ja = document.createElement('div'); ja.className = 'ja'; ja.textContent = w.ja;
       text.appendChild(en); text.appendChild(ja);
-
       const unlearnBtn = document.createElement('button');
       unlearnBtn.textContent = '戻す';
       unlearnBtn.addEventListener('click', () => {
@@ -858,47 +955,41 @@ function renderLearnedPage() {
         renderLearnedPage();
         render();
       });
-
       item.appendChild(cb); item.appendChild(text); item.appendChild(unlearnBtn);
       body.appendChild(item);
     });
-  }
 
-  updateLearnedToolbar(learned.length);
-  // ツールバーイベントバインド
-  document.getElementById('learnedSelAll').onclick = (e) => {
-    if (e.target.checked) learned.forEach(w => learnedSelected.add(w.id));
-    else learnedSelected.clear();
-    renderLearnedPage();
-  };
-  document.getElementById('learnedUnlearnSel').onclick = () => {
-    if (!learnedSelected.size) { alert('選択されていません'); return; }
-    if (!confirm(learnedSelected.size + '件を未学習に戻しますか?')) return;
-    words.forEach(w => {
-      if (learnedSelected.has(w.id)) {
-        w.learned = false;
-        delete w.learnedAt;
-      }
-    });
-    learnedSelected.clear();
-    save();
-    renderLearnedPage();
-    render();
-  };
-  document.getElementById('learnedUnlearnAll').onclick = () => {
-    if (!learned.length) return;
-    if (!confirm('全' + learned.length + '件を未学習に戻しますか?')) return;
-    words.forEach(w => {
-      if (w.learned) {
-        w.learned = false;
-        delete w.learnedAt;
-      }
-    });
-    learnedSelected.clear();
-    save();
-    renderLearnedPage();
-    render();
-  };
+    updateLearnedToolbar(list.length);
+    document.getElementById('learnedSelAll').onclick = (e) => {
+      if (e.target.checked) list.forEach(w => learnedSelected.add(w.id));
+      else list.forEach(w => learnedSelected.delete(w.id));
+      renderLearnedPage();
+    };
+    document.getElementById('learnedUnlearnSel').onclick = () => {
+      if (!learnedSelected.size) { alert('選択されていません'); return; }
+      if (!confirm(learnedSelected.size + '件を未学習に戻しますか?')) return;
+      words.forEach(w => {
+        if (learnedSelected.has(w.id)) {
+          w.learned = false;
+          delete w.learnedAt;
+        }
+      });
+      learnedSelected.clear();
+      save();
+      renderLearnedPage();
+      render();
+    };
+  } else if (!learned.length) {
+    const empty = document.createElement('div');
+    empty.style.cssText = 'color:#666;text-align:center;padding:20px;font-size:13px;';
+    empty.textContent = 'まだ覚えた単語がありません';
+    body.appendChild(empty);
+  } else {
+    const hint = document.createElement('div');
+    hint.style.cssText = 'color:#666;text-align:center;padding:20px;font-size:13px;';
+    hint.textContent = 'カレンダーの日付をタップすると、その日の単語が表示されます';
+    body.appendChild(hint);
+  }
 }
 
 function updateLearnedToolbar(total) {
