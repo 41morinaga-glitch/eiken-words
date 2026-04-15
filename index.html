@@ -170,7 +170,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-114930';
+const APP_VERSION = '20260415-115327';
 const STORAGE_KEY = 'eiken_words_v1';
 let words = load();
 let index = 0;
@@ -228,48 +228,34 @@ function next() { if (!words.length) return; index = (index + 1) % words.length;
 function prev() { if (!words.length) return; index = (index - 1 + words.length) % words.length; showJa = false; render(); }
 function flip() { if (!words.length) return; showJa = !showJa; render(); }
 
-// タップで反転、上スワイプで次、下スワイプで前
+// タップで反転、上スワイプで次、下スワイプで前 (Pointer Events)
 (function() {
   const card = document.getElementById('card');
-  let startX = 0, startY = 0, startT = 0, tracking = false;
-  const THRESHOLD = 40;
+  let startX = 0, startY = 0, pid = null;
+  const SWIPE = 40;
+  const TAP_MOVE = 10;
 
-  card.addEventListener('touchstart', e => {
-    if (e.touches.length !== 1) { tracking = false; return; }
-    tracking = true;
-    startX = e.touches[0].clientX;
-    startY = e.touches[0].clientY;
-    startT = Date.now();
-  }, { passive: true });
+  card.addEventListener('pointerdown', e => {
+    if (pid !== null) return;
+    pid = e.pointerId;
+    startX = e.clientX;
+    startY = e.clientY;
+  });
 
-  card.addEventListener('touchend', e => {
-    if (!tracking) return;
-    tracking = false;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
+  card.addEventListener('pointerup', e => {
+    if (e.pointerId !== pid) return;
+    pid = null;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
     const adx = Math.abs(dx), ady = Math.abs(dy);
-    if (ady > THRESHOLD && ady > adx) {
+    if (ady > SWIPE && ady > adx) {
       if (dy < 0) next(); else prev();
-    } else if (adx < 10 && ady < 10) {
-      flip();
-    }
-  }, { passive: true });
-
-  // マウス(デスクトップ)用
-  let mDown = false, mX = 0, mY = 0;
-  card.addEventListener('mousedown', e => { mDown = true; mX = e.clientX; mY = e.clientY; });
-  card.addEventListener('mouseup', e => {
-    if (!mDown) return;
-    mDown = false;
-    const dx = e.clientX - mX, dy = e.clientY - mY;
-    const adx = Math.abs(dx), ady = Math.abs(dy);
-    if (ady > THRESHOLD && ady > adx) {
-      if (dy < 0) next(); else prev();
-    } else if (adx < 5 && ady < 5) {
+    } else if (adx < TAP_MOVE && ady < TAP_MOVE) {
       flip();
     }
   });
+
+  card.addEventListener('pointercancel', () => { pid = null; });
 })();
 
 document.getElementById('shuffleBtn').addEventListener('click', () => {
@@ -546,7 +532,7 @@ async function checkForUpdate() {
     const res = await fetch('./index.html?_=' + Date.now(), { cache: 'no-store' });
     if (!res.ok) return;
     const text = await res.text();
-    const m = text.match(/const APP_VERSION = '20260415-114930']+)'/);
+    const m = text.match(/const APP_VERSION = '20260415-115327']+)'/);
     if (m && m[1] && m[1] !== APP_VERSION && m[1] !== '20260415-113938') {
       console.log('新バージョン検出:', m[1], '→ リロード');
       location.reload();
