@@ -226,7 +226,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-145427';
+const APP_VERSION = '20260415-150035';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -456,27 +456,24 @@ function deleteBackup(ts) {
 }
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
-// 日本語訳のフォーマット: 区切り位置で分割 → 短すぎる断片は結合して読みやすく
+// 日本語訳のフォーマット: 意味単位(「、」「。」区切り)ごとに1行
 function formatJa(s) {
   if (!s) return '';
-  const MIN = 8;
-  let t = s;
-  t = t.replace(/([。、，,．）)〉》」』】＞>])/g, '$1\0');
-  t = t.replace(/([（(〈《「『【＜<])/g, '\0$1');
-  const chunks = t.split('\0').map(c => c.trim()).filter(Boolean);
-  const merged = [];
-  for (const c of chunks) {
-    if (merged.length && merged[merged.length - 1].length < MIN) {
-      merged[merged.length - 1] += c;
-    } else {
-      merged.push(c);
+  // 括弧の外にある「、」「。」「，」「．」「,」で区切る
+  const chunks = [];
+  let buf = '';
+  let depth = 0;
+  for (const ch of s) {
+    if ('（(〈《「『【＜<'.indexOf(ch) >= 0) depth++;
+    buf += ch;
+    if ('）)〉》」』】＞>'.indexOf(ch) >= 0) depth = Math.max(0, depth - 1);
+    if (depth === 0 && '、。，．,'.indexOf(ch) >= 0) {
+      chunks.push(buf.trim());
+      buf = '';
     }
   }
-  while (merged.length > 1 && merged[merged.length - 1].length < MIN) {
-    const last = merged.pop();
-    merged[merged.length - 1] += last;
-  }
-  let out = merged.join('\n');
+  if (buf.trim()) chunks.push(buf.trim());
+  let out = chunks.filter(Boolean).join('\n');
   out = out.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   out = out.replace(/\n/g, '<br>');
   return out;
