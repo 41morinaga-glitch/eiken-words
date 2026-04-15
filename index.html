@@ -226,7 +226,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-141421';
+const APP_VERSION = '20260415-142129';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -550,8 +550,12 @@ function flip() { if (!activeWords.length) return; showJa = !showJa; render(); s
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
     const adx = Math.abs(dx), ady = Math.abs(dy);
+    // 覚えた直後: 任意の操作で次の単語へ進む
+    if (pendingAdvance) {
+      advanceAfterLearned();
+      return;
+    }
     if (adx > SWIPE && adx > ady) {
-      // 横スワイプ: 右 = 覚えた / 左 = 何もしない(将来用)
       if (dx > 0) markLearned();
     } else if (ady > SWIPE && ady > adx) {
       if (dy < 0) next(); else prev();
@@ -571,6 +575,7 @@ function flip() { if (!activeWords.length) return; showJa = !showJa; render(); s
     if (now - wheelCooldown < 250) return;
     if (Math.abs(e.deltaY) < 10) return;
     wheelCooldown = now;
+    if (pendingAdvance) { advanceAfterLearned(); return; }
     if (e.deltaY < 0) next(); else prev();
   }, { passive: false });
 })();
@@ -616,15 +621,27 @@ function showToast(text) {
   showToast._t = setTimeout(() => el.classList.remove('show'), 1400);
 }
 
+let pendingAdvance = false;
+
 function markLearned() {
-  if (!activeWords.length || !canNav()) return;
+  if (!activeWords.length) return;
   const current = activeWords[index];
   const target = words.find(w => w.id === current.id);
-  if (!target) return;
+  if (!target || target.learned) return;
   target.learned = true;
   target.learnedAt = Date.now();
   save();
   showToast(PRAISES[Math.floor(Math.random() * PRAISES.length)]);
+  pendingAdvance = true;
+  const hEl = document.getElementById('hint');
+  hEl.innerHTML = '👆 タップで次の単語へ';
+  hEl.style.color = '#95d5b2';
+}
+
+function advanceAfterLearned() {
+  pendingAdvance = false;
+  const hEl = document.getElementById('hint');
+  hEl.style.color = '';
   showJa = false;
   render();
   speakCurrent();
@@ -1565,6 +1582,7 @@ document.addEventListener('touchend', e => {
 document.addEventListener('keydown', e => {
   if (document.querySelector('.overlay.show')) return;
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (pendingAdvance) { e.preventDefault(); advanceAfterLearned(); return; }
   if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); flip(); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); next(); }
   else if (e.key === 'ArrowDown') { e.preventDefault(); prev(); }
