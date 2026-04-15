@@ -74,6 +74,7 @@
 <div id="topbar">
   <span id="counter">0 / 0</span>
   <span id="syncBadge" style="font-size:12px;color:#666;"></span>
+  <button id="sortBtn" aria-label="並び替え">↓新</button>
   <button id="shuffleBtn">↻</button>
 </div>
 
@@ -215,7 +216,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <script>
-const APP_VERSION = '20260415-135044';
+const APP_VERSION = '20260415-135824';
 const STORAGE_KEY = 'eiken_words_v1';
 const SPEAK_KEY = 'eiken_speak_v1';
 const SYNC_KEY = 'eiken_sync_v1';
@@ -575,6 +576,41 @@ document.getElementById('shuffleBtn').addEventListener('click', () => {
   save(); index = 0; showJa = false; render();
 });
 
+// 日付ソート: 降順(新しい順) ⇄ 昇順(古い順) をトグル
+function wordDate(w, fallbackIdx) {
+  if (w.createdAt) return w.createdAt;
+  const id = w.id || '';
+  // uid() は Date.now().toString(36) + 5文字ランダムで生成される
+  const hex = id.slice(0, id.length - 5);
+  const t = parseInt(hex, 36);
+  if (!isNaN(t) && t > 0) return t;
+  return fallbackIdx; // 配列位置をフォールバック
+}
+const SORT_KEY = 'eiken_sort_v1';
+let sortMode = localStorage.getItem(SORT_KEY) || 'desc'; // 'desc' or 'asc'
+function applySort() {
+  const indexed = words.map((w, i) => ({ w, i, t: wordDate(w, i) }));
+  indexed.sort((a, b) => {
+    if (a.t !== b.t) return sortMode === 'desc' ? b.t - a.t : a.t - b.t;
+    return sortMode === 'desc' ? b.i - a.i : a.i - b.i;
+  });
+  words = indexed.map(x => x.w);
+  save();
+  index = 0; showJa = false;
+  render();
+}
+function updateSortBtn() {
+  const btn = document.getElementById('sortBtn');
+  btn.textContent = sortMode === 'desc' ? '↓新' : '↑旧';
+}
+updateSortBtn();
+document.getElementById('sortBtn').addEventListener('click', () => {
+  sortMode = sortMode === 'desc' ? 'asc' : 'desc';
+  localStorage.setItem(SORT_KEY, sortMode);
+  updateSortBtn();
+  if (words.length > 1) applySort();
+});
+
 // Overlay management
 function showOverlay(id) { document.getElementById(id).classList.add('show'); }
 function hideOverlay(el) { el.classList.remove('show'); }
@@ -733,7 +769,7 @@ document.getElementById('addSave').addEventListener('click', () => {
   const en = document.getElementById('addEn').value.trim();
   const ja = document.getElementById('addJa').value.trim();
   if (!en || !ja) { alert('両方入力してください'); return; }
-  words.push({ id: uid(), en, ja });
+  words.push({ id: uid(), en, ja, createdAt: Date.now() });
   save();
   document.getElementById('addEn').value = '';
   document.getElementById('addJa').value = '';
@@ -863,7 +899,7 @@ document.getElementById('bulkPreview').addEventListener('click', () => {
 document.getElementById('bulkSave').addEventListener('click', () => {
   const valid = bulkPairs.filter(p => p.en.trim() && p.ja.trim());
   if (!valid.length) { alert('有効なペアがありません'); return; }
-  valid.forEach(p => words.push({ id: uid(), en: p.en.trim(), ja: p.ja.trim() }));
+  valid.forEach((p, i) => words.push({ id: uid(), en: p.en.trim(), ja: p.ja.trim(), createdAt: Date.now() + i }));
   save();
   bulkPairs = [];
   document.getElementById('bulkText').value = '';
@@ -1127,7 +1163,7 @@ function renderOcrPreview() {
 document.getElementById('ocrSave').addEventListener('click', () => {
   const valid = ocrPairs.filter(p => p.en.trim() && p.ja.trim());
   if (!valid.length) { alert('有効なペアがありません'); return; }
-  valid.forEach(p => words.push({ id: uid(), en: p.en.trim(), ja: p.ja.trim() }));
+  valid.forEach((p, i) => words.push({ id: uid(), en: p.en.trim(), ja: p.ja.trim(), createdAt: Date.now() + i }));
   save();
   ocrPairs = [];
   document.getElementById('ocrText').value = '';
